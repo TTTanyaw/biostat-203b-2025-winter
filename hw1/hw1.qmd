@@ -35,6 +35,9 @@ sessionInfo()
 
 5. After this course, you can make this repository public and use it to demonstrate your skill sets on job market.
 
+**Question 1 Done**
+
+
 ## Q2. Data ethics training
 
 This exercise (and later in this course) uses the [MIMIC-IV data v3.1](https://physionet.org/content/mimiciv/3.1/), a freely accessible critical care database developed by the MIT Lab for Computational Physiology. Follow the instructions at <https://mimic.mit.edu/docs/gettingstarted/> to (1) complete the CITI `Data or Specimens Only Research` course and (2) obtain the PhysioNet credential for using the MIMIC-IV data. Display the verification links to your completion report and completion certificate here. **You must complete Q2 before working on the remaining questions.** (Hint: The CITI training takes a few hours and the PhysioNet credentialing takes a couple days; do not leave it to the last minute.)
@@ -73,10 +76,21 @@ and the content of `icu` folder
 ls -l ~/mimic/icu/
 ```
 
-These data were distributed as `gz` file because ???.
+These data were distributed as `gz` file because they are compressed using gzip, which will reduce the file size and make the download and storage process more efficient. Besides, gzip format includes a checksum feature that ensures the integrity of the data. It also allows people to decompress only the necessary files, saving storage space.
 
 
 3. Briefly describe what Bash commands `zcat`, `zless`, `zmore`, and `zgrep` do.
+
+**Solution:** 
+
+`zcat`: This command is to display the contents of compressed files directly to the standard output.
+
+`zless`: This command is used for viewing text files one screen at a time in a terminal. zless allows people to view gzip-compressed text files in a paginated form.
+
+`zmore`: This command is for compressed files. It allows people to view the contents of gzip-compressed files page by page.
+
+`zgrep`: This command is to search for patterns within gzip-compressed files without decompressing them, outputting any lines which match the specified patterns.
+
 
 4. (Looping in Bash) What's the output of the following bash script?
 ```{bash}
@@ -88,6 +102,16 @@ done
 ```
 
 Display the number of lines in each data file using a similar loop. (Hint: combine linux commands `zcat <` and `wc -l`.)
+
+**Solution:** The bash script looks for any files starting with 'a', 'l', or 'pa' and ending with .gz.
+
+The number of lines in each data file is:
+```{bash}
+for datafile in ~/mimic/hosp/{a,l,pa}*.gz
+do
+  zcat < $datafile | wc -l
+done
+```
 
 
 5. Display the first few lines of `admissions.csv.gz`. How many rows are in this data file, excluding the header line? Each `hadm_id` identifies a hospitalization. How many hospitalizations are in this data file? How many unique patients (identified by `subject_id`) are in this data file? Do they match the number of patients listed in the `patients.csv.gz` file? (Hint: combine Linux commands `zcat <`, `head`/`tail`, `awk`, `sort`, `uniq`, `wc`, and so on.)
@@ -117,12 +141,12 @@ wc -l
 The same as number of rows in the file.
 
 Peek the first few lines of `patients.csv.gz`
-```{Bash}
+```{bash}
 zcat < ~/mimic/hosp/admissions.csv.gz | head
 ```
 
 The number of unique patients in this data file is
-```{Bash}
+```{bash}
 zcat < ~/mimic/hosp/admissions.csv.gz |
 tail -n +2 | 
 awk -F, '{print $1}' | 
@@ -132,7 +156,7 @@ wc -l
 ```
 
 which is less than the number of patients listed in the `patients.csv.gz` file.
-```{Bash}
+```{bash}
 zcat < ~/mimic/hosp/patients.csv.gz |
 awk -F, '{print $1}' | 
 sort | 
@@ -140,11 +164,117 @@ uniq |
 wc -l
 ```
 
+
 6. What are the possible values taken by each of the variable `admission_type`, `admission_location`, `insurance`, and `ethnicity`? Also report the count for each unique value of these variables in decreasing order. (Hint: combine Linux commands `zcat`, `head`/`tail`, `awk`, `uniq -c`, `wc`, `sort`, and so on; skip the header line.)
+
+**Solution:**
+
+Here is the first line of `admissions.csv.gz`
+```{bash}
+zcat < ~/mimic/hosp/admissions.csv.gz | head -1
+```
+
+Counts for `admission_type` (Column 6):
+```{bash}
+zcat < ~/mimic/hosp/admissions.csv.gz | 
+tail -n +2 | 
+awk -F, '{print $6}' | 
+sort | 
+uniq -c | 
+sort -nr
+```
+
+Counts for `admission_location` (Column 8):
+```{bash}
+zcat < ~/mimic/hosp/admissions.csv.gz | 
+tail -n +2 | 
+awk -F, '{print $8}' | 
+sort | 
+uniq -c | 
+sort -nr
+```
+
+Counts for `insurance` (Column 10):
+```{bash}
+zcat < ~/mimic/hosp/admissions.csv.gz | 
+tail -n +2 | 
+awk -F, '{print $10}' | 
+sort | 
+uniq -c | 
+sort -nr
+```
+
+Counts for `ethnicity` (Column 12):
+```{bash}
+zcat < ~/mimic/hosp/admissions.csv.gz | 
+tail -n +2 | 
+awk -F, '{print $12}' | 
+sort | 
+uniq -c | 
+sort -nr
+```
+
 
 7. The `icusays.csv.gz` file contains all the ICU stays during the study period. How many ICU stays, identified by `stay_id`, are in this data file? How many unique patients, identified by `subject_id`, are in this data file?
 
+**Sulotion:**
+
+Here is the first line of `icusays.csv.gz`
+```{bash}
+zcat < ~/mimic/icu/icustays.csv.gz | head -1
+```
+
+The number of ICU stays in this file is:
+```{bash}
+zcat < ~/mimic/icu/icustays.csv.gz | 
+tail -n +2 | 
+awk -F, '{print $3}' | 
+sort | 
+uniq | 
+wc -l
+```
+
+The number of unique patients in this data file is
+```{Bash}
+zcat < ~/mimic/icu/icustays.csv.gz | 
+tail -n +2 | 
+awk -F, '{print $1}' | 
+sort | 
+uniq |
+wc -l
+```
+
+
 8. _To compress, or not to compress. That's the question._ Let's focus on the big data file `labevents.csv.gz`. Compare compressed gz file size to the uncompressed file size. Compare the run times of `zcat < ~/mimic/labevents.csv.gz | wc -l` versus `wc -l labevents.csv`. Discuss the trade off between storage and speed for big data files. (Hint: `gzip -dk < FILENAME.gz > ./FILENAME`. Remember to delete the large `labevents.csv` file after the exercise.)
+
+**Solution:**
+
+The compressed file size is:
+```{bash}
+ls -lh ~/mimic/hosp/labevents.csv.gz
+```
+
+The uncompressed file size is:
+```{bash}
+gzip -dk < ~/mimic/hosp/labevents.csv.gz > ./labevents.csv
+ls -lh ./labevents.csv
+```
+
+The runtime comparison:
+```{bash}
+time zcat < ~/mimic/hosp/labevents.csv.gz | wc -l
+```
+
+```{bash}
+time wc -l labevents.csv
+```
+
+Compressed files significantly reduce storage needs, which can save costs and minimize data transfer bandwidth. However, they require additional CPU resources for decompression, which will slow down data processing. Uncompressed files, while larger, provide faster access and processing speeds. Therefore, if storage is limited and CPU resources are abundant, compression will be preferable. Instead, if speed and quick data access are required, and sufficient storage is available, uncompressed data file will be better.
+
+```{bash}
+rm labevents.csv
+```
+
 
 ## Q4. Who's popular in Price and Prejudice
 
@@ -153,6 +283,7 @@ wc -l
 #| eval: false
 wget -nc http://www.gutenberg.org/cache/epub/42671/pg42671.txt
 ```
+
 Explain what `wget -nc` does. Do **not** put this text file `pg42671.txt` in Git. Complete the following loop to tabulate the number of times each of the four characters is mentioned using Linux commands.
 ```{bash}
 #| eval: false
@@ -160,9 +291,14 @@ wget -nc http://www.gutenberg.org/cache/epub/42671/pg42671.txt
 for char in Elizabeth Jane Lydia Darcy
 do
   echo $char:
-  # some bash commands here
+  grep -o $char pg42671.txt | wc -l
 done
 ```
+
+**Solution:**
+
+The `wget -nc` command is used to download files from the internet. The -nc option tells wget not to download a file if it already exists in the specified location. 
+
 
 2. What's the difference between the following two commands?
 ```{bash}
@@ -174,6 +310,15 @@ and
 #| eval: false
 echo 'hello, world' >> test2.txt
 ```
+
+**Solution:**
+
+`echo 'hello, world' > test1.txt` writes the string 'hello, world' to the file test1.txt, replacing any existing content within the file. If test1.txt does not exist, it will create the file.
+
+`echo 'hello, world' >> test2.txt` appends the string 'hello, world' to the end of test2.txt. If test2.txt does not exist, it will also create the file. 
+
+The difference between them is that `>>` will append to rather than replacing the file's content.
+
 
 3. Using your favorite text editor (e.g., `vi`), type the following and save the file as `middle.sh`:
 ```{bash eval=FALSE}
@@ -188,6 +333,7 @@ Using `chmod` to make the file executable by the owner, and run
 ./middle.sh pg42671.txt 20 5
 ```
 Explain the output. Explain the meaning of `"$1"`, `"$2"`, and `"$3"` in this shell script. Why do we need the first line of the shell script?
+
 
 ## Q5. More fun with Linux
 
