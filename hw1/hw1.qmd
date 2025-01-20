@@ -339,12 +339,101 @@ Explain the output. Explain the meaning of `"$1"`, `"$2"`, and `"$3"` in this sh
 
 Try following commands in Bash and interpret the results: `cal`, `cal 2025`, `cal 9 1752` (anything unusual?), `date`, `hostname`, `arch`, `uname -a`, `uptime`, `who am i`, `who`, `w`, `id`, `last | head`, `echo {con,pre}{sent,fer}{s,ed}`, `time sleep 5`, `history | tail`.
 
+`cal` displays the calendar of the current month:
+```{bash}
+cal
+```
+
+`cal 2025` displays the calendar of year 2025:
+```{bash}
+cal 2025
+```
+
+`cal 9 1752` displays the calendar of September 1752:
+```{bash}
+cal 9 1752
+```
+
+One special thing is that this month misses several days (9.3-9.13). According to the materials, this is because of the adoption of the Gregorian calendar by Britain and its colonies, which required an adjustment of 11 days to correct for accumulated discrepancies over centuries.
+
+`date` displays the current date and time:
+```{bash}
+date
+```
+
+`hostname` displays the name of computer I am using:
+```{bash}
+hostname
+```
+
+`arch` outputs the architecture of the processor in the machine:
+```{bash}
+arch
+```
+
+`uname -a` displays the kernel name, hostname, kernel release, kernel version, machine, processor, hardware platform, and operating system of the system:
+```{bash}
+uname -a
+```
+
+`uptime` shows how long the system has been running since its last startup, along with the current number of users and load averages for the past 1, 5, and 15 minutes:
+```{bash}
+uptime
+```
+
+`who am i` shows who I am logged in with and login time:
+```{bash}
+who am i
+```
+
+`who` shows the login name, terminal line, and login time of the user currently logged into the computer:
+```{bash}
+who
+```
+
+`w` shows who is currently using the system, their activities, and the system’s current load:
+```{bash}
+w
+```
+
+`id` displays the user and group information for the current user, showing user ID, group ID, and the groups the user is part of:
+```{bash}
+id
+```
+
+`last | head` shows the last several logins in the system, how long each session lasted, and from where the login occurred:
+```{bash}
+last | head
+```
+
+`echo {con,pre}{sent,fer}{s,ed}` uses brace expansion to generate combinations of the specified elements:
+```{bash}
+echo {con,pre}{sent,fer}{s,ed}
+```
+
+`time sleep 5` measures the time taken to execute sleep 5, which pauses the command line for 5 seconds:
+```{bash}
+time sleep 5
+```
+
+`history | tail` displays the last few commands I have executed in the terminal
+```{bash}
+history | tail
+```
+
+
 ## Q6. Book
 
 1. Git clone the repository <https://github.com/christophergandrud/Rep-Res-Book> for the book _Reproducible Research with R and RStudio_ to your local machine. Do **not** put this repository within your homework repository `biostat-203b-2025-winter`.
+
+**Solution:** Done.
 
 2. Open the project by clicking `rep-res-3rd-edition.Rproj` and compile the book by clicking `Build Book` in the `Build` panel of RStudio. (Hint: I was able to build `git_book` and `epub_book` directly. For `pdf_book`, I needed to add a line `\usepackage{hyperref}` to the file `Rep-Res-Book/rep-res-3rd-edition/latex/preabmle.tex`.)
 
 The point of this exercise is (1) to obtain the book for free and (2) to see an example how a complicated project such as a book can be organized in a reproducible way. Use `sudo apt install PKGNAME` to install required Ubuntu packages and `tlmgr install PKGNAME` to install missing TexLive packages.
 
 For grading purpose, include a screenshot of Section 4.1.5 of the book here.
+
+**Solution:**
+
+![Section 4.1.5](/Users/tanyawang/Desktop/4.1.5.png)
