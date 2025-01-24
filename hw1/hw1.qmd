@@ -257,7 +257,7 @@ ls -lh ~/mimic/hosp/labevents.csv.gz
 
 The uncompressed file size is:
 ```{bash}
-# gzip -dk < ~/mimic/hosp/labevents.csv.gz > ./labevents.csv
+gzip -dk < ~/mimic/hosp/labevents.csv.gz > ./labevents.csv
 ls -lh ./labevents.csv
 ```
 
