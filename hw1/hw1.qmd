@@ -4,6 +4,7 @@ subtitle: Due Jan 24, 2025 @ 11:59PM
 author: Tanya Wang, 605587605
 format:
   html:
+    typst: default
     theme: cosmo
     embed-resources: true
     number-sections: false
@@ -94,7 +95,7 @@ These data were distributed as `gz` file because they are compressed using gzip,
 
 4. (Looping in Bash) What's the output of the following bash script?
 ```{bash}
-#| eval: false
+#| eval: true
 for datafile in ~/mimic/hosp/{a,l,pa}*.gz
 do
   ls -l $datafile
@@ -256,7 +257,7 @@ ls -lh ~/mimic/hosp/labevents.csv.gz
 
 The uncompressed file size is:
 ```{bash}
-gzip -dk < ~/mimic/hosp/labevents.csv.gz > ./labevents.csv
+# gzip -dk < ~/mimic/hosp/labevents.csv.gz > ./labevents.csv
 ls -lh ./labevents.csv
 ```
 
@@ -271,22 +272,18 @@ time wc -l labevents.csv
 
 Compressed files significantly reduce storage needs, which can save costs and minimize data transfer bandwidth. However, they require additional CPU resources for decompression, which will slow down data processing. Uncompressed files, while larger, provide faster access and processing speeds. Therefore, if storage is limited and CPU resources are abundant, compression will be preferable. Instead, if speed and quick data access are required, and sufficient storage is available, uncompressed data file will be better.
 
-```{bash}
-rm labevents.csv
-```
-
 
 ## Q4. Who's popular in Price and Prejudice
 
 1. You and your friend just have finished reading *Pride and Prejudice* by Jane Austen. Among the four main characters in the book, Elizabeth, Jane, Lydia, and Darcy, your friend thinks that Darcy was the most mentioned. You, however, are certain it was Elizabeth. Obtain the full text of the novel from <http://www.gutenberg.org/cache/epub/42671/pg42671.txt> and save to your local folder. 
 ```{bash}
-#| eval: false
+#| eval: true
 wget -nc http://www.gutenberg.org/cache/epub/42671/pg42671.txt
 ```
 
 Explain what `wget -nc` does. Do **not** put this text file `pg42671.txt` in Git. Complete the following loop to tabulate the number of times each of the four characters is mentioned using Linux commands.
 ```{bash}
-#| eval: false
+#| eval: true
 wget -nc http://www.gutenberg.org/cache/epub/42671/pg42671.txt
 for char in Elizabeth Jane Lydia Darcy
 do
@@ -302,12 +299,12 @@ The `wget -nc` command is used to download files from the internet. The -nc opti
 
 2. What's the difference between the following two commands?
 ```{bash}
-#| eval: false
+#| eval: true
 echo 'hello, world' > test1.txt
 ```
 and
 ```{bash}
-#| eval: false
+#| eval: true
 echo 'hello, world' >> test2.txt
 ```
 
@@ -329,10 +326,25 @@ head -n "$2" "$1" | tail -n "$3"
 ```
 Using `chmod` to make the file executable by the owner, and run
 ```{bash}
-#| eval: false
+#| eval: true
 ./middle.sh pg42671.txt 20 5
 ```
 Explain the output. Explain the meaning of `"$1"`, `"$2"`, and `"$3"` in this shell script. Why do we need the first line of the shell script?
+
+**Solution:** 
+
+The output shows the information of an eBook. Its release date is May 9, 2013, and its identifier is eBook #42671. It also shows that the eBook is written in English.
+
+"$1", "$2", and "$3" are positional parameters used in shell scripts:
+
+"$1" is the first argument passed to the script, which is filename her.
+
+"$2" represents the second argument, which is end_line here. It determines how many lines from the start of the file will be considered for the future process.
+
+"\$3" is the third argument, which is num_lines, and it indicates the number of lines to be displayed from the end of the range specified by "\$2".
+
+The first line of the shell script, #!/bin/sh, is called a shebang. It tells the operating system which interpreter to use to run the script. Without this line, the script would require the user to manually specify which interpreter to use, which is not convenient.
+
 
 
 ## Q5. More fun with Linux
@@ -406,9 +418,9 @@ id
 last | head
 ```
 
-`echo {con,pre}{sent,fer}{s,ed}` uses brace expansion to generate combinations of the specified elements:
+`echo {con, pre}{sent, fer}{s, ed}` uses brace expansion to generate combinations of the specified elements:
 ```{bash}
-echo {con,pre}{sent,fer}{s,ed}
+echo {con, pre}{sent, fer}{s, ed}
 ```
 
 `time sleep 5` measures the time taken to execute sleep 5, which pauses the command line for 5 seconds:
@@ -436,4 +448,4 @@ For grading purpose, include a screenshot of Section 4.1.5 of the book here.
 
 **Solution:**
 
-![Section 4.1.5](/Users/tanyawang/Desktop/4.1.5.png)
+![Section 4.1.5](4.1.5.png)
