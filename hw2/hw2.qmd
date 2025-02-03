@@ -56,9 +56,53 @@ There are quite a few utilities in R for reading plain text data files. Let us t
 
 Which function is fastest? Is there difference in the (default) parsed data types? How much memory does each resultant dataframe or tibble use? (Hint: `system.time` measures run times; `pryr::object_size` measures memory usage; all these readers can take gz file as input without explicit decompression.) 
 
+**Solution:**
+
+Test the speed of reading file:
+```{r}
+# Define file path
+file_path <- "/home/tttanyaw/mimic/hosp/admissions.csv.gz"
+
+# Read using base R
+system.time(df_base <- read.csv(file_path))
+
+# Read using tidyverse
+system.time(df_tidy <- read_csv(file_path))
+
+# Read using data.table
+system.time(df_dt <- fread(file_path))
+```
+
+According to the results, fread() (Data.table) is the fastest function.
+
+Data types:
+```{r}
+sapply(df_base, class)   # Base R
+sapply(df_tidy, class)   # Tidyverse
+sapply(df_dt, class)     # data.table
+```
+
+Therefore, there are differences in the default parsed data types.
+
+Check the momory:
+```{r}
+# read.csv() (Base R)
+object_size(df_base)
+
+# read_csv() (Tidyverse)
+object_size(df_tidy)
+
+# fread() (Data.table)
+object_size(df_dt)    
+```
+
+
 ### Q1.2 User-supplied data types
 
 Re-ingest `admissions.csv.gz` by indicating appropriate column data types in `read_csv`. Does the run time change? How much memory does the result tibble use? (Hint: `col_types` argument in `read_csv`.)
+
+**Solution:**
+
 
 ## Q2. Ingest big data files
 
