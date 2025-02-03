@@ -102,6 +102,37 @@ object_size(df_dt)
 Re-ingest `admissions.csv.gz` by indicating appropriate column data types in `read_csv`. Does the run time change? How much memory does the result tibble use? (Hint: `col_types` argument in `read_csv`.)
 
 **Solution:**
+```{r}
+# Indicate appropriate column data types
+appro_data_type <- cols(
+  subject_id = col_integer(),
+  hadm_id = col_integer(),
+  admittime = col_datetime(format = ""),
+  dischtime = col_datetime(format = ""),
+  deathtime = col_datetime(format = ""),
+  admission_type = col_character(),
+  admit_provider_id = col_character(),
+  admission_location = col_character(),
+  discharge_location = col_character(),
+  insurance = col_character(),
+  language = col_character(),
+  marital_status = col_character(),
+  race = col_character(),
+  edregtime = col_datetime(format = ""),
+  edouttime = col_datetime(format = ""),
+  hospital_expire_flag = col_integer()
+)
+
+# Run time
+system.time(df_tidy_appro <- read_csv(file_path, col_types = appro_data_type))
+
+# Memory
+object_size(df_tidy)
+object_size(df_tidy_appro)
+```
+
+According to the output results, specifying col_types results in a longer run time, and it uses 63.47 MB of momory, which is less than the 70.02 MB used by the default read_csv() auto-detection. 
+
 
 
 ## Q2. Ingest big data files
