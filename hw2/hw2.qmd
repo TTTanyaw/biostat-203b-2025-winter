@@ -209,7 +209,7 @@ gzip > ~/mimic/hosp/labevents_filtered.csv.gz
 
 Display the first 10 lines:
 ```{bash}
-zcat < ~/mimic/hosp/labevents.csv.gz | head -10
+zcat < ~/mimic/hosp/labevents_filtered.csv.gz | head -10
 ```
 
 Count the number of lines excluding the header:
@@ -234,6 +234,46 @@ Our second strategy is to use [Apache Arrow](https://arrow.apache.org/) for larg
 Then use [`arrow::open_dataset`](https://arrow.apache.org/docs/r/reference/open_dataset.html) to ingest `labevents.csv`, select columns, and filter `itemid` as in Q2.3. How long does the ingest+select+filter process take? Display the number of rows and the first 10 rows of the result tibble, and make sure they match those in Q2.3. (Hint: use `dplyr` verbs for selecting columns and filtering rows.)
 
 Write a few sentences to explain what is Apache Arrow. Imagine you want to explain it to a layman in an elevator. 
+
+**Solution:**
+
+Decompress `labevents.csv.gz`:
+```{bash}
+#| eval: false
+gunzip -c ~/mimic/hosp/labevents.csv.gz > labevents.csv
+echo "labevents.csv" >> .gitignore
+```
+
+Ingest + select + filter:
+```{r}
+labevents <- open_dataset(
+  "labevents.csv", 
+  format = "csv"
+)
+
+# select columns and filter `itemid`
+filtered_labevents <- labevents %>%
+  select(subject_id, itemid, charttime, valuenum) %>%
+  filter(itemid %in% c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931))
+
+# measure time
+system.time(df_arrow <- collect(filtered_labevents))
+```
+The ingest + select + filter process takes less than 1 minute.
+
+Number of rows:
+```{r}
+nrow(df_arrow)
+```
+
+First 10 rows:
+```{r}
+head(df_arrow, 10)
+```
+
+Apache Arrow is a high-performance framework designed for fast and efficient data processing. Compare to traditional methods that require data to be read and written repeatedly, Apache Arrow keeps data in a columnar memory format, allowing seamless interaction between different analysis tools. This will prevent unnecessary data conversion and reduces processing time and memory usage. By optimizing how data is stored and accessed, Arrow enables real-time analysis of large data sets that would otherwise be too slow or memory intensive to process.For example, it is like a online video platform that does not need people to download movies, instead, they can access to the data without waiting.
+
+
 
 ### Q2.5 Compress `labevents.csv` to Parquet format and ingest/select/filter
 
