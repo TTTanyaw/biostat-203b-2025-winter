@@ -285,6 +285,47 @@ Re-write the csv file `labevents.csv` in the binary Parquet format (Hint: [`arro
 
 Write a few sentences to explain what is the Parquet format. Imagine you want to explain it to a layman in an elevator.
 
+**Solution:**
+
+Convert `labevents.csv` to binary Parquet Format:
+```{r}
+write_dataset(
+  open_dataset("labevents.csv", format = "csv"), 
+  path = "labevents_parquet", 
+  format = "parquet"
+)
+```
+
+Check Parquet File Size:
+```{bash}
+ls -lh labevents_parquet/
+```
+
+Ingest+select+filter process:
+```{r}
+data_parquet <- open_dataset("labevents_parquet", format = "parquet")
+
+filtered_data_parquet <- data_parquet %>%
+  select(subject_id, itemid, charttime, valuenum) %>%
+  filter(itemid %in% c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931))
+
+system.time(df_parquet <- collect(filtered_data_parquet))
+```
+
+Number of rows:
+```{r}
+nrow(df_parquet)
+```
+
+First 10 rows:
+```{r}
+head(df_parquet, 10)
+```
+
+Parquet is like a ZIP file for big data. Instead of storing data in long, slow text files like CSV, Parquet organizes it efficiently in a compressed, column-based format. This makes reading data much faster and reduces storage space. For example, CSV is like a library where books are scattered randoml, but Parquet is like a well-organized library with a digital index.
+
+
+
 ### Q2.6 DuckDB
 
 <p align="center">
@@ -294,6 +335,37 @@ Write a few sentences to explain what is the Parquet format. Imagine you want to
 Ingest the Parquet file, convert it to a DuckDB table by [`arrow::to_duckdb`](https://arrow.apache.org/docs/r/reference/to_duckdb.html), select columns, and filter rows as in Q2.5. How long does the ingest+convert+select+filter process take? Display the number of rows and the first 10 rows of the result tibble and make sure they match those in Q2.3. (Hint: use `dplyr` verbs for selecting columns and filtering rows.)
 
 Write a few sentences to explain what is DuckDB. Imagine you want to explain it to a layman in an elevator.
+
+**Solution:**
+
+Ingest + convert + select + filter:
+```{r}
+data_parquet <- open_dataset("labevents_parquet", format = "parquet")
+duckdb_table <- to_duckdb(data_parquet)
+
+filtered_data_duckdb <- duckdb_table %>%
+  select(subject_id, itemid, charttime, valuenum) %>%
+  filter(itemid %in% c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931))
+
+# Measure execution time
+system.time(df_duckdb <- collect(filtered_data_duckdb))
+
+```
+
+
+Number of rows:
+```{r}
+nrow(df_duckdb)
+```
+
+First 10 rows:
+```{r}
+head(df_duckdb, 10)
+```
+
+DuckDB lets you run super-fast, SQL-like queries on large datasets, but without needing a huge database server. Unlike traditional databases that are slow for analysis, DuckDB is lightweight, in-memory, and optimized for analytics. For example, it is like online shared website that can handle millions of rows instantly instead of crashing.
+
+
 
 ## Q3. Ingest and filter `chartevents.csv.gz`
 
