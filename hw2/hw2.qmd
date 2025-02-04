@@ -124,7 +124,8 @@ appro_data_type <- cols(
 )
 
 # Run time
-system.time(df_tidy_appro <- read_csv(file_path_admis, col_types = appro_data_type))
+system.time(df_tidy_appro <- read_csv(file_path_admis, 
+                                      col_types = appro_data_type))
 
 # Memory
 object_size(df_tidy)
@@ -176,7 +177,8 @@ Try to ingest only columns `subject_id`, `itemid`, `charttime`, and `valuenum` i
 **Solution:**
 
 ```{r, eval=FALSE}
-system.time(df_selected <- read_csv(file_path_lab, col_select = c("subject_id", "itemid", "charttime", "valuenum")))
+col_select <- c("subject_id", "itemid", "charttime", "valuenum")
+system.time(df_selected <- read_csv(file_path_lab, col_select = col_select))
 ```
 
 No, it still takes more than 3 minutes to run.
@@ -251,7 +253,7 @@ labevents <- open_dataset(
   format = "csv"
 )
 
-# select columns and filter `itemid`
+# select columns and filter
 filtered_labevents <- labevents %>%
   select(subject_id, itemid, charttime, valuenum) %>%
   filter(itemid %in% c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931))
@@ -259,7 +261,6 @@ filtered_labevents <- labevents %>%
 # measure time
 system.time(df_arrow <- collect(filtered_labevents))
 ```
-The ingest + select + filter process takes less than 1 minute.
 
 Number of rows:
 ```{r}
@@ -385,4 +386,41 @@ zcat < ~/mimic/icu/d_items.csv.gz | head -10
 In later exercises, we are interested in the vitals for ICU patients: heart rate (220045), mean non-invasive blood pressure (220181), systolic non-invasive blood pressure (220179), body temperature in Fahrenheit (223761), and respiratory rate (220210). Retrieve a subset of `chartevents.csv.gz` only containing these items, using the favorite method you learnt in Q2. 
 
 Document the steps and show code. Display the number of rows and the first 10 rows of the result tibble.
+
+**Solution:**
+
+Decompress `chartevents.csv.gz`:
+```{bash}
+#| eval: false
+gunzip -c ~/mimic/icu/chartevents.csv.gz > chartevents.csv
+echo "chartevents.csv" >> .gitignore
+```
+
+Ingest + select + filter:
+```{r}
+chartevents <- open_dataset(
+  "chartevents.csv", 
+  format = "csv"
+)
+
+# select columns and filter
+filtered_charteventss <- chartevents %>%
+  select(subject_id, itemid, charttime, valuenum) %>%
+  filter(itemid %in% c(220045, 220181, 220179, 223761, 220210))
+
+# measure time
+system.time(df_arrow_new <- collect(filtered_charteventss))
+```
+
+Number of rows:
+```{r}
+nrow(df_arrow_new)
+```
+
+First 10 rows:
+```{r}
+head(df_arrow_new, 10)
+```
+
+
 
