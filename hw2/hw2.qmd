@@ -61,16 +61,16 @@ Which function is fastest? Is there difference in the (default) parsed data type
 Test the speed of reading file:
 ```{r}
 # Define file path
-file_path <- "/home/tttanyaw/mimic/hosp/admissions.csv.gz"
+file_path_admis <- "/home/tttanyaw/mimic/hosp/admissions.csv.gz"
 
 # Read using base R
-system.time(df_base <- read.csv(file_path))
+system.time(df_base <- read.csv(file_path_admis))
 
 # Read using tidyverse
-system.time(df_tidy <- read_csv(file_path))
+system.time(df_tidy <- read_csv(file_path_admis))
 
 # Read using data.table
-system.time(df_dt <- fread(file_path))
+system.time(df_dt <- fread(file_path_admis))
 ```
 
 According to the results, fread() (Data.table) is the fastest function.
@@ -124,7 +124,7 @@ appro_data_type <- cols(
 )
 
 # Run time
-system.time(df_tidy_appro <- read_csv(file_path, col_types = appro_data_type))
+system.time(df_tidy_appro <- read_csv(file_path_admis, col_types = appro_data_type))
 
 # Memory
 object_size(df_tidy)
@@ -157,6 +157,16 @@ zcat < ~/mimic/hosp/labevents.csv.gz | head -10
 </p>
 
 Try to ingest `labevents.csv.gz` using `read_csv`. What happens? If it takes more than 3 minutes on your computer, then abort the program and report your findings. 
+
+**Solution:**
+
+```{r}
+# system.time(df_labevents <- read_csv("/home/tttanyaw/mimic/hosp/labevents.csv.gz"))
+```
+
+It took more than 3 minutes on my computer and the RStudio is not responding after that. I used `free -h` to monitor memory usage in Ubuntu and found that 15 out of 15 GB memory was used, meaning that my RAM is almost fully used.
+
+
 
 ### Q2.2 Ingest selected columns of `labevents.csv.gz` by `read_csv`
 
