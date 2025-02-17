@@ -55,19 +55,18 @@ ls -l ~/mimic/hosp/labevents.csv.gz
 ```
 
 ```{r}
-library(arrow)
-library(dplyr)
-
-input_file <- "~/mimic/hosp/labevents.csv.gz"
-labevents_pq <- open_dataset(input_file, format = "csv")
-output_dir <- "labevents_parquet"
-write_dataset(labevents_pq, path = output_dir, format = "parquet")
+labevents <- open_dataset("labevents_pq", format = "parquet")
 ```
 
 ```{r}
-labevents_pq <- open_dataset("labevents_parquet", format = "parquet")
+id <- 10063848
 ```
 
+```{r}
+labevents <- labevents %>%
+  filter(subject_id == id) %>%
+  collect()
+```
 
 ```{r}
 path_patients <- "~/mimic/hosp/patients.csv.gz"
@@ -78,119 +77,171 @@ path_diagnoses <- "~/mimic/hosp/diagnoses_icd.csv.gz"
 path_icd_procedures <- "~/mimic/hosp/d_icd_procedures.csv.gz"
 path_icd_diagnoses <- "~/mimic/hosp/d_icd_diagnoses.csv.gz"
 
-
 patients <- read_csv(path_patients) %>%
-  filter(subject_id == 10063848)
+  filter(subject_id == id)
 
 admissions <- read_csv(path_admissions) %>%
-  filter(subject_id == 10063848)
+  filter(subject_id == id)
 
 transfers <- read_csv(path_transfers) %>%
-  filter(subject_id == 10063848)
+  filter(subject_id == id)
 
 procedures <- read_csv(path_procedures) %>%
-  filter(subject_id == 10063848)
+  filter(subject_id == id)
 
 diagnoses <- read_csv(path_diagnoses) %>%
-  filter(subject_id == 10063848)
+  filter(subject_id == id)
 
 d_icd_procedures <- read_csv(path_icd_procedures)
 
 d_icd_diagnoses <- read_csv(path_icd_diagnoses)
 ```
 
+
 ```{r}
 # Get top 3 diagnoses
-diagnoses <- diagnoses %>%
-  inner_join(d_icd_diagnoses, by = "icd_code") %>%
+diag <- diagnoses %>%
+  left_join(d_icd_diagnoses, by = "icd_code") %>%
   count(long_title, sort = TRUE) %>%
   slice_head(n = 3)
 ```
 
 ```{r}
-# Map care unit color
-care_unit_colors <- c(
-  "Emergency Department" = "red",
-  "Medicine" = "green",
-  "Neurology" = "cyan",
-  "Surgical Intensive Care Unit (SICU)" = "purple"
-)
-```
-
-```{r}
 # Prepare ADT timeline
-transfers <- transfers %>%
+trans <- transfers %>%
+  select(subject_id, careunit, intime, outtime) %>%
   mutate(
-    intime = as_datetime(intime),
-    outtime = as_datetime(outtime),
-    unit_type = case_when(
-      careunit %in% c("MICU", "SICU", "CCU", "TSICU") ~ "ICU",
-      TRUE ~ "General"
-    )
+    intime = as_date(ymd_hms(intime)),
+    outtime = as_date(ymd_hms(outtime)),
+    type_of_event = "ADT",
+    ICU = ifelse(
+      careunit == "Surgical Intensive Care Unit (SICU)", TRUE, FALSE)
   )
 ```
 
 ```{r}
 # Prepare lab events
-labevents <- labevents_pq %>%
-  mutate(charttime = as_datetime(charttime)) %>%
-  select(subject_id, charttime, itemid)
+labevent <- labevents %>%
+  select(subject_id, charttime) %>%
+  mutate(
+    charttime = as_date(charttime),
+    type_of_event = "Lab") %>%
+  rename(event_time = charttime)
 ```
 
 ```{r}
 # Prepare procedures
-procedures <- procedures %>%
-  full_join(d_icd_procedures, by = "icd_code") %>%
-  mutate(charttime = as_datetime(chartdate)) %>%
-  select(subject_id, charttime, long_title)
+proc <- procedures %>%
+  select(subject_id, chartdate, icd_code) %>%
+  left_join(d_icd_procedures, by = "icd_code") %>%
+  mutate(charttime = as_datetime(chartdate),
+         type_of_event = "Procedure") %>%
+  rename(event_time = charttime) 
 ```
 
 ```{r}
-transfers <- as.data.frame(transfers)
+# Prepare patient
+patient <- patients %>%
+  left_join(admissions, by = "subject_id") %>%
+  select(subject_id, gender, anchor_age, race) %>%
+  unique()
+```
+
+
+```{r}
+trans <- as.data.frame(transfers)
 labevents <- as.data.frame(labevents)
-procedures <- as.data.frame(procedures)
+proc <- as.data.frame(procedures)
 ```
 
 
+
 ```{r}
-head(d_icd_diagnoses)
+combine <- bind_rows(trans %>% 
+                       select(subject_id, event_time = intime, type_of_event, careunit, ICU),
+                     trans %>% 
+                       select(subject_id, event_time = outtime, type_of_event, careunit, ICU),
+                     labevent %>% 
+                       select(subject_id, type_of_event, event_time),
+                     proc %>% 
+                       select(subject_id, event_time, type_of_event, long_title)) %>%
+  mutate (type_of_event = factor(type_of_event, levels = c("ADT", "Lab", "Procedure")
+  ))
+
+combine <- combine %>%
+  mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
+
+trans <- trans %>%
+  mutate(
+    intime = as.POSIXct(intime, format="%Y-%m-%d %H:%M:%S", tz="UTC"),
+    outtime = as.POSIXct(outtime, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+  )
+
+labevent <- labevent %>%
+  mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
+
+proc <- proc %>%
+  mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
+```
+
+```{r}
+diag$long_title
 ```
 
 
-```{r}
-ggplot() +
-  # ADT Events as segments (Fix size → linewidth)
-  geom_segment(data = transfers,
-               aes(x = intime, xend = outtime, y = "ADT", yend = "ADT", color = careunit),
-               linewidth = 3) +  # 🔧 Fix deprecated size aesthetic
+```{r, fig.width=12, fig.height=6}
+race_value <- ifelse("race" %in% colnames(patient), 
+                     tolower(patient$race), "unknown")
 
-  # Lab Events as cross markers (Ensure data exists)
-  geom_point(data = labevents,
-             aes(x = charttime, y = "Lab"),
-             shape = 3, size = 3) +
+plot_title <- paste0("Patient ", patients$subject_id, 
+                     ", ", patients$gender, 
+                     ", ", patients$anchor_age, 
+                     " years old, ", race_value)
 
-  # Procedures as different shapes (Ensure data exists)
-  geom_point(data = procedures,
-             aes(x = charttime, y = "Procedure", shape = long_title),
-             size = 4) +
+plot_subtitle <- paste(na.omit(diag$long_title), collapse = "\n")
 
-  # Patient Information
-  ggtitle(paste("Patient", patients$subject_id, ",",
-                patients$gender, ",",
-                patients$anchor_age, "years old,", patients$race),
-          subtitle = paste(diagnoses$long_title, collapse = "\n")) +
-
-  # Use Correct Color Mapping
-  scale_color_manual(values = care_unit_colors) +
+ggplot(combine, 
+       aes(x = event_time, y = type_of_event)) +
   
-  # Use Different Shapes for Procedures
-  scale_shape_manual(values = c(16, 17, 15)) +
+  scale_y_discrete(limits = c("Procedure", "Lab", "ADT")) +
+  
+  geom_point(
+    data = proc,
+    aes(x = event_time, y = type_of_event, shape = long_title)) +
+  
+  geom_segment(
+    data = trans,
+    aes(x = intime, xend = outtime, y = type_of_event, yend = type_of_event, 
+                   color = careunit, linewidth = as.factor(ICU))) +
+  
+  geom_point(
+    data = labevent,
+    aes(x = event_time, y = type_of_event),
+    shape = 4, size = 3) +
+  
+  labs(
+    title = plot_title,
+    subtitle = plot_subtitle,
+    x = "Calender Time",
+    y = NULL,
+    color = "Care Unit",
+    shape = "Procedure"
+  ) +
+  
+  guides(
+  shape = guide_legend(title = "Procedure", nrow = 3, order = 2),
+  color = guide_legend(title = "Care Unit", nrow = 2, order = 1),
+  linewidth = "none"
+) +
   
   theme_minimal() +
-  labs(x = "Calendar Time", y = "",
-       color = "Care Unit",
-       shape = "Procedure")
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    axis.text.x = element_text(hjust = 1)
+  )
 ```
+
 
 
 
