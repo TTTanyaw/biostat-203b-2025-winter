@@ -50,6 +50,25 @@ Hint: We need to pull information from data files `patients.csv.gz`, `admissions
 
 **Solution:**
 
+```{bash}
+ls -l ~/mimic/hosp/labevents.csv.gz
+```
+
+```{r}
+library(arrow)
+library(dplyr)
+
+input_file <- "~/mimic/hosp/labevents.csv.gz"
+labevents_pq <- open_dataset(input_file, format = "csv")
+output_dir <- "labevents_parquet"
+write_dataset(labevents_pq, path = output_dir, format = "parquet")
+```
+
+```{r}
+labevents_pq <- open_dataset("labevents_parquet", format = "parquet")
+```
+
+
 ```{r}
 path_patients <- "~/mimic/hosp/patients.csv.gz"
 path_admissions <- "~/mimic/hosp/admissions.csv.gz"
@@ -79,6 +98,100 @@ d_icd_procedures <- read_csv(path_icd_procedures)
 
 d_icd_diagnoses <- read_csv(path_icd_diagnoses)
 ```
+
+```{r}
+# Get top 3 diagnoses
+diagnoses <- diagnoses %>%
+  inner_join(d_icd_diagnoses, by = "icd_code") %>%
+  count(long_title, sort = TRUE) %>%
+  slice_head(n = 3)
+```
+
+```{r}
+# Map care unit color
+care_unit_colors <- c(
+  "Emergency Department" = "red",
+  "Medicine" = "green",
+  "Neurology" = "cyan",
+  "Surgical Intensive Care Unit (SICU)" = "purple"
+)
+```
+
+```{r}
+# Prepare ADT timeline
+transfers <- transfers %>%
+  mutate(
+    intime = as_datetime(intime),
+    outtime = as_datetime(outtime),
+    unit_type = case_when(
+      careunit %in% c("MICU", "SICU", "CCU", "TSICU") ~ "ICU",
+      TRUE ~ "General"
+    )
+  )
+```
+
+```{r}
+# Prepare lab events
+labevents <- labevents_pq %>%
+  mutate(charttime = as_datetime(charttime)) %>%
+  select(subject_id, charttime, itemid)
+```
+
+```{r}
+# Prepare procedures
+procedures <- procedures %>%
+  full_join(d_icd_procedures, by = "icd_code") %>%
+  mutate(charttime = as_datetime(chartdate)) %>%
+  select(subject_id, charttime, long_title)
+```
+
+```{r}
+transfers <- as.data.frame(transfers)
+labevents <- as.data.frame(labevents)
+procedures <- as.data.frame(procedures)
+```
+
+
+```{r}
+head(d_icd_diagnoses)
+```
+
+
+```{r}
+ggplot() +
+  # ADT Events as segments (Fix size → linewidth)
+  geom_segment(data = transfers,
+               aes(x = intime, xend = outtime, y = "ADT", yend = "ADT", color = careunit),
+               linewidth = 3) +  # 🔧 Fix deprecated size aesthetic
+
+  # Lab Events as cross markers (Ensure data exists)
+  geom_point(data = labevents,
+             aes(x = charttime, y = "Lab"),
+             shape = 3, size = 3) +
+
+  # Procedures as different shapes (Ensure data exists)
+  geom_point(data = procedures,
+             aes(x = charttime, y = "Procedure", shape = long_title),
+             size = 4) +
+
+  # Patient Information
+  ggtitle(paste("Patient", patients$subject_id, ",",
+                patients$gender, ",",
+                patients$anchor_age, "years old,", patients$race),
+          subtitle = paste(diagnoses$long_title, collapse = "\n")) +
+
+  # Use Correct Color Mapping
+  scale_color_manual(values = care_unit_colors) +
+  
+  # Use Different Shapes for Procedures
+  scale_shape_manual(values = c(16, 17, 15)) +
+  
+  theme_minimal() +
+  labs(x = "Calendar Time", y = "",
+       color = "Care Unit",
+       shape = "Procedure")
+```
+
 
 
 ### Q1.2 ICU stays
