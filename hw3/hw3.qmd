@@ -149,14 +149,6 @@ patient <- patients %>%
 
 
 ```{r}
-trans <- as.data.frame(transfers)
-labevents <- as.data.frame(labevents)
-proc <- as.data.frame(procedures)
-```
-
-
-
-```{r}
 combine <- bind_rows(trans %>% 
                        select(subject_id, event_time = intime, type_of_event, careunit, ICU),
                      trans %>% 
@@ -184,12 +176,8 @@ proc <- proc %>%
   mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
 ```
 
-```{r}
-diag$long_title
-```
 
-
-```{r, fig.width=12, fig.height=6}
+```{r, fig.width=12, fig.height=6, warning=FALSE}
 race_value <- ifelse("race" %in% colnames(patient), 
                      tolower(patient$race), "unknown")
 
@@ -217,7 +205,7 @@ ggplot(combine,
   geom_point(
     data = labevent,
     aes(x = event_time, y = type_of_event),
-    shape = 4, size = 3) +
+    shape = 4, size = 4) +
   
   labs(
     title = plot_title,
@@ -252,6 +240,94 @@ ICU stays are a subset of ADT history. This figure shows the vitals of the patie
 ![](10001217_icu.png)
 
 Do a similar visualization for the patient `10063848`.
+
+**Solution:**
+
+```{r}
+library(data.table)
+
+path_icustays <- "~/mimic/icu/icustays.csv.gz"
+path_ditems <- "~/mimic/icu/d_items.csv.gz"
+
+icustays <- fread(path_icustays)
+d_items <- fread(path_ditems)
+```
+
+```{r}
+library(DBI)
+library(duckdb)
+
+# Connect to DuckDB (in-memory or file-based)
+con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+
+# Query only required data (efficient for large datasets)
+patient_vitals <- dbGetQuery(con, "
+    SELECT subject_id, stay_id, charttime, itemid, value
+    FROM read_csv_auto('~/mimic/icu/chartevents.csv.gz')
+    WHERE subject_id = 10063848
+")
+
+# Disconnect when done
+dbDisconnect(con)
+```
+
+
+```{r}
+id <- 10063848
+patient_icustays <- icustays %>%
+  filter(subject_id == id) %>%
+  select(subject_id, stay_id, intime, outtime)
+```
+
+
+```{r}
+vitals <- patient_vitals %>%
+  filter(subject_id == id) %>%
+  left_join(patient_icustays, by = c("stay_id", "subject_id")) %>%
+  select(subject_id, stay_id, charttime, itemid, value) %>%
+  mutate(charttime = as.POSIXct(charttime, format="%Y-%m-%d %H:%M:%S"))
+```
+
+```{r}
+vitals <- vitals %>%
+  left_join(d_items %>% select(itemid, abbreviation), by = "itemid") %>%
+  rename(vital_type = abbreviation) %>%
+  select(subject_id, stay_id, charttime, vital_type, value) %>%
+  filter(vital_type %in% c("HR", "RR", "NBPs", "NBPd", "Temperature F"))
+```
+
+
+```{r, fig.width=10, fig.height=12}
+ggplot(vitals, aes(x = charttime, y = value, group = vital_type, 
+                   color = vital_type)) +
+  
+  geom_line() +
+  
+  geom_point(size = 1.5) +
+  
+  facet_grid(vital_type ~ stay_id, scales = "free") +
+  
+  scale_x_datetime(date_labels = "%b %d %H:%M") +
+  
+  scale_y_discrete(breaks = function(x) x[seq(1, length(x), by = 5)]) +   
+  
+  labs(
+    title = paste("Patient", unique(vitals$subject_id), "ICU Stays - Vitals"),
+    x = "Calendar Time",
+    y = "Vital Value",
+    color = "Vital Type"
+  ) +
+  
+  theme_light() +
+  
+  theme(
+    strip.text = element_text(size = 8),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+
+```
+
 
 ## Q2. ICU stays
 
