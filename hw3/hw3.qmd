@@ -501,9 +501,33 @@ zcat < ~/mimic/hosp/patients.csv.gz | head
 
 Import `patients.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/hosp/patients/>) as a tibble `patients_tble`.
 
+**Solution:**
+
+```{r}
+patients_tble <- fread(path_patients) %>%
+  as_tibble()
+```
+
+
 ### Q4.2 Summary and visualization
 
 Summarize variables `gender` and `anchor_age` by graphics, and explain any patterns you see.
+
+**Solution:**
+
+```{r}
+ggplot(patients_tble, aes(x = anchor_age)) +
+  geom_histogram(binwidth = 1) +
+  facet_wrap(~gender, scales = "free_y") +
+  labs(title = "Age Distribution by Gender",
+       x = "Age",
+       y = "Count") +
+  theme_minimal()
+```
+
+The plots of female reveals a sharp peak between ages 0-25, followed by a declining trend from 25 to 50 years. Around 50-60 years, there is a slight increase before the trend declines again in older ages. While the overall patterns are similar, males exhibit a broader middle-age peak, suggesting a higher hospitalization rate in this age group. A significant spike at age 90 is observed for both genders, likely due to MIMIC-IV’s age-capping policy.
+
+
 
 ## Q5. Lab results
 
