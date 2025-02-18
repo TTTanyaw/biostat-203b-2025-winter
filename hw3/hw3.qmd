@@ -350,7 +350,6 @@ Import `icustays.csv.gz` as a tibble `icustays_tble`.
 ```{r}
 library(tibble)
 
-path_icustays <- "~/mimic/icu/icustays.csv.gz"
 icustays_tble <- fread(path_icustays) %>%
   as_tibble()
 ```
@@ -402,6 +401,13 @@ zcat < ~/mimic/hosp/admissions.csv.gz | head
 
 Import `admissions.csv.gz` as a tibble `admissions_tble`.
 
+**Solution:**
+
+```{r}
+admissions_tble <- fread(path_admissions) %>%
+  as_tibble()
+```
+
 ### Q3.2 Summary and visualization
 
 Summarize the following information by graphics and explain any patterns you see.
@@ -414,6 +420,75 @@ Summarize the following information by graphics and explain any patterns you see
 According to the [MIMIC-IV documentation](https://mimic.mit.edu/docs/iv/about/concepts/#date-shifting), 
 
 > All dates in the database have been shifted to protect patient confidentiality. Dates will be internally consistent for the same patient, but randomly distributed in the future. Dates of birth which occur in the present time are not true dates of birth. Furthermore, dates of birth which occur before the year 1900 occur if the patient is older than 89. In these cases, the patient’s age at their first admission has been fixed to 300.
+
+**Solution:**
+
+number of admissions per patient:
+```{r}
+admission_count <- admissions_tble %>%
+  group_by(subject_id) %>%
+  summarise(num_admission = n()) %>%
+  ungroup()
+
+ggplot(admission_count, aes(x = num_admission)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Number of Admissions per Patient",
+       x = "Number of Admissions",
+       y = "Number of Patients")
+```
+
+The histogram shows a of right-skewed distribution of hospital admissions per patient. The majority of patients have only one admission, suggesting that most hospital visits are isolated events rather than recurrent ones.
+
+
+admission hour:
+```{r, warning = FALSE}
+admission_hour <- admissions_tble %>%
+  mutate(admittime = ymd_hms(admittime)) %>%
+  mutate(admit_hour = hour(admittime))
+
+ggplot(admission_hour, aes(x = admit_hour)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Admission Hour Distribution",
+       x = "Admission Hour",
+       y = "Number of Admissions")
+
+```
+
+According to the plot, the distribution shows a increasing trend of admissions begin at 10 AM, peaking in the evening. Fewer admissions occur overnight (12 AM – 6 AM), except for a spike at 7 AM.
+
+
+admission minute:
+```{r, warning = FALSE}
+admissions_minute <- admissions_tble %>%
+  mutate(admittime = ymd_hms(admittime)) %>%
+  mutate(admit_minute = minute(admittime))
+
+ggplot(admissions_minute, aes(x = admit_minute)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Admission Minute Distribution",
+       x = "Admission Minute",
+       y = "Number of Admissions")
+```
+
+The admission hour distribution has a structured pattern in hospital admissions. There are several notable spike at whole hour, 15 minutes, 30 minutes, and 45 minutes.
+
+
+length of hospital stay (from admission to discharge):
+```{r, warning = FALSE}
+hospital_stay <- admissions_tble %>%
+  mutate(admittime = ymd_hms(admittime), dischtime = ymd_hms(dischtime)) %>%
+  mutate(length_stay = as.numeric(difftime(dischtime, admittime, units = "days")))
+
+ggplot(hospital_stay, aes(x = length_stay)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Length of Hospital Stay Distribution",
+       x = "Length of Stay",
+       y = "Number of Admissions")
+```
+
+The length of hospital stay distribution is highly right-skewed, with most patients having short stays and a sharp decline as the length increases. A small number of patients have very long stays (30+ days). There is nothing unusal based on my observation.
+
+
 
 ## Q4. `patients` data
 
