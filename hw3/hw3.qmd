@@ -26,6 +26,7 @@ library(memuse)
 library(pryr)
 library(R.utils)
 library(tidyverse)
+library(dplyr)
 ```
 
 Display your machine memory.
@@ -149,19 +150,22 @@ patient <- patients %>%
 
 
 ```{r}
-combine <- bind_rows(trans %>% 
-                       select(subject_id, event_time = intime, type_of_event, careunit, ICU),
-                     trans %>% 
-                       select(subject_id, event_time = outtime, type_of_event, careunit, ICU),
-                     labevent %>% 
-                       select(subject_id, type_of_event, event_time),
-                     proc %>% 
-                       select(subject_id, event_time, type_of_event, long_title)) %>%
-  mutate (type_of_event = factor(type_of_event, levels = c("ADT", "Lab", "Procedure")
-  ))
+combine <- bind_rows(
+  trans %>% 
+    select(subject_id, event_time = intime, type_of_event, careunit, ICU),
+  trans %>% 
+    select(subject_id, event_time = outtime, type_of_event, careunit, ICU),
+  labevent %>%
+    select(subject_id, type_of_event, event_time),
+  proc %>%
+    select(subject_id, event_time, type_of_event, long_title)) %>%
+  mutate (type_of_event = 
+            factor(type_of_event, levels = c("ADT", "Lab", "Procedure"))
+          )
 
 combine <- combine %>%
-  mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
+  mutate(event_time = 
+           as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
 
 trans <- trans %>%
   mutate(
@@ -170,10 +174,12 @@ trans <- trans %>%
   )
 
 labevent <- labevent %>%
-  mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
+  mutate(event_time = 
+           as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
 
 proc <- proc %>%
-  mutate(event_time = as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
+  mutate(event_time = 
+           as.POSIXct(event_time, format="%Y-%m-%d %H:%M:%S", tz="UTC"))
 ```
 
 
@@ -257,17 +263,16 @@ d_items <- fread(path_ditems)
 library(DBI)
 library(duckdb)
 
-# Connect to DuckDB (in-memory or file-based)
+# Connect to DuckDB
 con <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
 
-# Query only required data (efficient for large datasets)
+# Query only required data
 patient_vitals <- dbGetQuery(con, "
     SELECT subject_id, stay_id, charttime, itemid, value
     FROM read_csv_auto('~/mimic/icu/chartevents.csv.gz')
     WHERE subject_id = 10063848
 ")
 
-# Disconnect when done
 dbDisconnect(con)
 ```
 
@@ -340,9 +345,51 @@ zcat < ~/mimic/icu/icustays.csv.gz | head
 
 Import `icustays.csv.gz` as a tibble `icustays_tble`. 
 
+**Solution:**
+
+```{r}
+library(tibble)
+
+path_icustays <- "~/mimic/icu/icustays.csv.gz"
+icustays_tble <- fread(path_icustays) %>%
+  as_tibble()
+```
+
+
 ### Q2.2 Summary and visualization
 
 How many unique `subject_id`? Can a `subject_id` have multiple ICU stays? Summarize the number of ICU stays per `subject_id` by graphs. 
+
+**Solution:**
+
+Count Unique subject_id: 
+```{r}
+unique_id <- icustays_tble %>% 
+  summarise(`Unique Subject ID` = n_distinct(subject_id))
+
+print(unique_id)
+```
+
+Check if a subject_id can have multiple ICU stays:
+```{r}
+icu_stay_counts <- icustays_tble %>% 
+  group_by(subject_id) %>% 
+  summarise(num_stays = n()) %>% 
+  ungroup()
+
+icu_stay_counts
+```
+
+Summarize the number of ICU stays per `subject_id` by graphs:
+```{r}
+ggplot(icu_stay_counts, aes(x = num_stays)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "ICU Stays per Subject ID",
+       x = "Number of ICU Stays",
+       y = "Number of Subjects ID")
+
+```
+
 
 ## Q3. `admissions` data
 
