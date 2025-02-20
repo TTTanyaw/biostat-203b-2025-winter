@@ -475,7 +475,8 @@ length of hospital stay (from admission to discharge):
 ```{r, warning = FALSE}
 hospital_stay <- admissions_tble %>%
   mutate(admittime = ymd_hms(admittime), dischtime = ymd_hms(dischtime)) %>%
-  mutate(length_stay = as.numeric(difftime(dischtime, admittime, units = "days")))
+  mutate(length_stay = as.numeric(difftime(dischtime, admittime, 
+                                           units = "days")))
 
 ggplot(hospital_stay, aes(x = length_stay)) +
   geom_histogram(binwidth = 1) +
@@ -837,13 +838,14 @@ head(mimic_icu_cohort_3)
 
 - Length of ICU stay `los` vs first ICU unit
 
-```{r}
+```{r, fig.width=12, fig.height=6}
 ggplot(mimic_icu_cohort, 
        aes(x = first_careunit, y = los, fill = first_careunit)) +
   geom_boxplot() +
   labs(title = "ICU Stay Length by First ICU Unit", 
        x = "First ICU Unit", 
-       y = "Length of Stay (LOS)")
+       y = "Length of Stay (LOS)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 
