@@ -713,6 +713,22 @@ The final `mimic_icu_cohort` should have one row per ICU stay and columns for ea
 
 ![](mimic_icu_cohort.png)
 
+**Solution:**
+```{r}
+mimic_icu_cohort <- icustays_tble %>%
+  left_join(admissions_tble, by = c("subject_id", "hadm_id")) %>%
+  left_join(patients_tble, by = "subject_id") %>%
+  left_join(labevents_tble, by = c("subject_id", "stay_id")) %>%
+  left_join(chartevents_tble, by = c("subject_id", "stay_id")) %>%
+  mutate(age_intime = year(intime) - (anchor_year - anchor_age)) %>%
+  filter(age_intime >= 18) %>%
+  distinct(stay_id, .keep_all = TRUE)
+
+head(mimic_icu_cohort, n = 10)
+```
+
+
+
 ## Q8. Exploratory data analysis (EDA)
 
 Summarize the following information about the ICU stay cohort `mimic_icu_cohort` using appropriate numerics or graphs:
