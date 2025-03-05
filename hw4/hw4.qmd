@@ -141,7 +141,49 @@ labevents_tble <- tbl(con_bq, "labevents") |>
 ### Q1.6 `chartevents` data
 
 Connect to `chartevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the chart events listed in HW3. Only keep the first chart events (by `storetime`) during ICU stay and pivot chart events to become variables/columns. Write all steps in _one_ chain of pipes. Similary to HW3, if a vital has multiple measurements at the first `storetime`, average them.
+```{r}
+vitals_map <- c(
+  "220045" = "heart_rate",
+  "220179" = "non_invasive_blood_pressure_systolic",
+  "220180" = "non_invasive_blood_pressure_diastolic",
+  "223761" = "temperature_fahrenheit",
+  "220210" = "respiratory_rate"
+)
 
+vitals_itemids <- as.numeric(names(vitals_map))
+
+chartevents_tble <- tbl(con_bq, "chartevents") |>
+  select(subject_id, itemid, storetime, valuenum) |>
+  filter(itemid %in% vitals_itemids) |>
+  left_join(
+    select(icustays_tble, subject_id, stay_id, intime, outtime),
+    by = "subject_id",
+    copy = TRUE
+  ) |>
+  filter(storetime >= intime & storetime <= outtime) |>
+  group_by(subject_id, stay_id, itemid, storetime) |>
+  mutate(valuenum = mean(valuenum, na.rm = TRUE)) |>
+  ungroup() |>
+  group_by(subject_id, stay_id, itemid) |>
+  slice_min(order_by = storetime, n = 1) |>
+  select(-storetime, -intime) |>
+  ungroup() |>
+  pivot_wider(names_from = itemid, values_from = valuenum) |>
+  rename_with(~ recode(., !!!vitals_map)) |>
+  select(
+    subject_id,
+    stay_id,
+    heart_rate,
+    non_invasive_blood_pressure_diastolic, 
+    non_invasive_blood_pressure_systolic,
+    respiratory_rate,
+    temperature_fahrenheit 
+  ) |>
+  arrange(subject_id, stay_id) |>
+  # show_query() |>
+  print(width = Inf)
+
+```
 
 ### Q1.7 Put things together
 
