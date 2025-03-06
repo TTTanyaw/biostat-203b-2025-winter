@@ -189,8 +189,17 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
 This step is similar to Q7 of HW3. Using _one_ chain of pipes `|>` to perform following data wrangling steps: (i) start with the `icustays_tble`, (ii) merge in admissions and patients tables, (iii) keep adults only (age at ICU intime >= 18), (iv) merge in the labevents and chartevents tables, (v) `collect` the tibble, (vi) sort `subject_id`, `hadm_id`, `stay_id` and `print(width = Inf)`.
 
 ```{r}
-# # TODO
-# mimic_icu_cohort <- 
+mimic_icu_cohort <- icustays_tble |>
+  left_join(admissions_tble, by = c("subject_id", "hadm_id")) |>
+  left_join(patients_tble, by = "subject_id") |>
+  mutate(age_intime = year(intime) - (anchor_year - anchor_age)) |>
+  filter(age_intime >= 18) |>
+  left_join(labevents_tble, by = c("subject_id", "stay_id")) |>
+  left_join(chartevents_tble, by = c("subject_id", "stay_id")) |>
+  distinct(stay_id, .keep_all = TRUE) |>
+  collect() |>
+  arrange(subject_id, hadm_id, stay_id) |>
+  print(width = Inf)
 ```
 
 ### Q1.8 Preprocessing
