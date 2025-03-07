@@ -215,6 +215,224 @@ Hint: Below is a numerical summary of my tibble after preprocessing:
 ```{r}
 library(forcats)
 
+mimic_icu_cohort <- mimic_icu_cohort |>
+  mutate(
+    # Lump infrequent levels into "Other"
+    first_careunit = fct_lump_n(as.factor(first_careunit), n = 4),
+    last_careunit = fct_lump_n(as.factor(last_careunit), n = 4),
+    admission_type = fct_lump_n(as.factor(admission_type), n = 4),
+    admission_location = fct_lump_n(as.factor(admission_location), n = 4),
+    discharge_location = fct_lump_n(as.factor(discharge_location), n = 4),
+    
+    # Collapse race into broader categories
+    race = fct_collapse(
+      as.factor(race),
+      ASIAN = c("ASIAN", "ASIAN - CHINESE", "ASIAN - KOREAN", 
+                "ASIAN - ASIAN INDIAN", "ASIAN - SOUTH EAST ASIAN"),
+      BLACK = c("BLACK/AFRICAN AMERICAN", "BLACK/AFRICAN", 
+                "BLACK/CAPE VERDEAN", "BLACK/CARIBBEAN ISLAND"),
+      HISPANIC = c("HISPANIC OR LATINO", "HISPANIC/LATINO - SALVADORAN", 
+                   "HISPANIC/LATINO - PUERTO RICAN",
+                   "HISPANIC/LATINO - GUATEMALAN", "HISPANIC/LATINO - CUBAN", 
+                   "HISPANIC/LATINO - DOMINICAN",
+                   "HISPANIC/LATINO - CENTRAL AMERICAN", 
+                   "HISPANIC/LATINO - HONDURAN", 
+                   "HISPANIC/LATINO - COLUMBIAN", "HISPANIC/LATINO - MEXICAN", 
+                   "SOUTH AMERICAN"),
+      WHITE = c("WHITE", "WHITE - RUSSIAN", "WHITE - OTHER EUROPEAN", 
+                "WHITE - BRAZILIAN", "WHITE - EASTERN EUROPEAN", "PORTUGUESE"),
+      OTHER = c("OTHER", "UNKNOWN", "UNABLE TO OBTAIN", 
+                "PATIENT DECLINED TO ANSWER", "AMERICAN INDIAN/ALASKA NATIVE", 
+                "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER", 
+                "MULTIPLE RACE/ETHNICITY")
+    ),
+    
+    # Create `los_long` variable
+    los_long = los >= 2,
+    los_long = fct_relevel(as.factor(los_long), "TRUE", "FALSE")
+  )
+
+# Summarize the data using `tbl_summary()`, stratified by `los_long`
+summary_table <- mimic_icu_cohort |>
+  select(first_careunit, last_careunit, admission_type, admission_location, 
+         discharge_location, insurance, language, marital_status, race, 
+         hospital_expire_flag, gender, dod, chloride, creatinine, sodium, 
+         potassium, glucose, hematocrit, wbc, bicarbonate, 
+         non_invasive_blood_pressure_systolic, 
+         non_invasive_blood_pressure_diastolic, respiratory_rate, 
+         temperature_fahrenheit, heart_rate, age_intime, los_long) |>
+  tbl_summary(by = los_long)
+summary_table
+```
+
+
+### Q1.9 Save the final tibble
+
+Save the final tibble to an R data file `mimic_icu_cohort.rds` in the `mimiciv_shiny` folder.
+```{r}
+# make a directory mimiciv_shiny
+if (!dir.exists("mimiciv_shiny")) {
+  dir.create("mimiciv_shiny")
+}
+# save the final tibble
+mimic_icu_cohort |>
+  write_rds("mimiciv_shiny/mimic_icu_cohort.rds", compress = "gz")
+```
+Close database connection and clear workspace.
+```{r}
+if (exists("con_bq")) {
+  dbDisconnect(con_bq)
+}
+rm(list = ls())
+```
+Although it is not a good practice to add big data files to Git, for grading purpose, please add `mimic_icu_cohort.rds` to your Git repository.
+
+
+## Q2. Shiny app
+
+Develop a Shiny app for exploring the ICU cohort data created in Q1. The app should reside in the `mimiciv_shiny` folder. The app should contain at least two tabs. One tab provides easy access to the graphical and numerical summaries of variables (demographics, lab measurements, vitals) in the ICU cohort, using the `mimic_icu_cohort.rds` you curated in Q1. The other tab allows user to choose a specific patient in the cohort and display the patient's ADT and ICU stay information as we did in Q1 of HW3, by dynamically retrieving the patient's ADT and ICU stay information from BigQuery database. Again, do **not** ever add the BigQuery token to your Git repository. If you do so, you will lose 50 points.
+
+
+```{r}
+library(shiny)
+library(shinydashboard)
+library(DT)
+library(ggplot2)
+library(dplyr)
+
+ui <- dashboardPage(
+    dashboardHeader(title = "ICU Cohort Explorer"),
+    dashboardSidebar(
+        sidebarMenu(
+            menuItem("Summary", tabName = "summary", icon = icon("dashboard")),
+            menuItem("Patient Details", tabName = "patient_details", 
+                     icon = icon("user-circle"))
+        )
+    ),
+    dashboardBody(
+        tabItems(
+            tabItem(tabName = "summary",
+                fluidRow(
+                    box(title = "Select Category", status = "primary", 
+                        solidHeader = TRUE, collapsible = TRUE,
+                        selectInput("category", "Category:", 
+                                    choices = c("Demographics", 
+                                                "Lab Measurements", 
+                                                "Vitals")),
+                        selectInput("variable", "Variable:", choices = NULL)
+                    ),
+                    box(title = "Graphical Summary", 
+                        status = "warning", plotOutput("variable_plot")),
+                    box(title = "Numerical Summary", 
+                        status = "info", DTOutput("variable_summary"))
+                )
+            ),
+            tabItem(tabName = "patient_details",
+                    h1("Patient Details"),
+                    textInput("input_patient_id", "Enter Patient ID:", value = ""),  # Patient ID input box
+                    textOutput("details_text")  # Placeholder text
+            )
+        )
+    )
+)
+
+
+server <- function(input, output, session) {
+    # Load data
+    mimic_icu_cohort <- readRDS("mimiciv_shiny/mimic_icu_cohort.rds")
+    
+    # Update variable choices based on selected category
+    observe({
+        vars <- switch(input$category,
+                       "Demographics" = c("age_intime", 
+                                          "gender", 
+                                          "race", 
+                                          "insurance", 
+                                          "marital_status"),
+                       "Lab Measurements" = c("bicarbonate", 
+                                              "chloride", 
+                                              "creatinine", 
+                                              "glucose", 
+                                              "potassium", 
+                                              "sodium", 
+                                              "hematocrit", 
+                                              "wbc"),
+                       "Vitals" = c("heart_rate", 
+                                    "non_invasive_blood_pressure_diastolic", 
+                                    "non_invasive_blood_pressure_systolic", 
+                                    "respiratory_rate", 
+                                    "temperature_fahrenheit"))
+        updateSelectInput(session, "variable", choices = vars)
+    })
+    
+    output$variable_plot <- renderPlot({
+        req(input$variable)
+        if (input$variable %in% c("gender", 
+                                  "race", 
+                                  "insurance", 
+                                  "marital_status")) {
+            ggplot(mimic_icu_cohort, 
+                   aes_string(x = input$variable, 
+                              fill = input$variable)) +
+                geom_bar() +
+                theme_minimal() +
+                labs(title = paste("Distribution of", 
+                                   input$variable), x = NULL)
+        } else {
+            ggplot(mimic_icu_cohort, aes_string(x = input$variable)) +
+                geom_histogram(bins = 30) +
+                theme_minimal() +
+                labs(title = paste("Distribution of", input$variable), 
+                     x = NULL)
+        }
+    })
+    
+    output$variable_summary <- renderDT({
+    req(input$variable)
+    summary_data <- mimic_icu_cohort %>%
+        select(input$variable) %>%
+        summary()
+
+    summary_df <- data.frame(
+        Value = c(summary_data[1], 
+                  summary_data[2], 
+                  summary_data[3], 
+                  summary_data[4], 
+                  summary_data[5], 
+                  summary_data[6])
+    )
+
+    datatable(summary_df, 
+              options = list(pageLength = 6, 
+                             searching = FALSE, 
+                             paging = FALSE))
+    })
+    
+    output$details_text <- renderText({
+        if (input$input_patient_id != "") {
+            paste("Displaying details for patient ID:", input$input_patient_id)
+        } else {
+            "Please enter a patient ID to see details."
+        }
+    })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+### Q1.8 Preprocessing
+
+Perform the following preprocessing steps. (i) Lump infrequent levels into "Other" level for `first_careunit`, `last_careunit`, `admission_type`, `admission_location`, and `discharge_location`. (ii) Collapse the levels of `race` into `ASIAN`, `BLACK`, `HISPANIC`, `WHITE`, and `Other`. (iii) Create a new variable `los_long` that is `TRUE` when `los` is greater than or equal to 2 days. (iv) Summarize the data using `tbl_summary()`, stratified by `los_long`. Hint: `fct_lump_n` and `fct_collapse` from the `forcats` package are useful.
+
+Hint: Below is a numerical summary of my tibble after preprocessing:
+
+<iframe width=95% height="500" src="./mimic_icu_cohort_gtsummary.html"></iframe>
+
+**Solution:**
+
+```{r}
+library(forcats)
+
 mimic_icu_cohort_pre <- mimic_icu_cohort |>
   mutate(
     # Lump infrequent levels into "Other"
@@ -290,3 +508,137 @@ Although it is not a good practice to add big data files to Git, for grading pur
 ## Q2. Shiny app
 
 Develop a Shiny app for exploring the ICU cohort data created in Q1. The app should reside in the `mimiciv_shiny` folder. The app should contain at least two tabs. One tab provides easy access to the graphical and numerical summaries of variables (demographics, lab measurements, vitals) in the ICU cohort, using the `mimic_icu_cohort.rds` you curated in Q1. The other tab allows user to choose a specific patient in the cohort and display the patient's ADT and ICU stay information as we did in Q1 of HW3, by dynamically retrieving the patient's ADT and ICU stay information from BigQuery database. Again, do **not** ever add the BigQuery token to your Git repository. If you do so, you will lose 50 points.
+
+```{r}
+library(shiny)
+library(shinydashboard)
+library(DT)
+library(ggplot2)
+library(dplyr)
+
+ui <- dashboardPage(
+    dashboardHeader(title = "ICU Cohort Explorer"),
+    dashboardSidebar(
+        sidebarMenu(
+            menuItem("Summary", tabName = "summary", icon = icon("dashboard")),
+            menuItem("Patient Details", tabName = "patient_details", 
+                     icon = icon("user-circle"))
+        )
+    ),
+    dashboardBody(
+        tabItems(
+            tabItem(tabName = "summary",
+                fluidRow(
+                    box(title = "Select Category", status = "primary", 
+                        solidHeader = TRUE, collapsible = TRUE,
+                        selectInput("category", "Category:", 
+                                    choices = c("Demographics", 
+                                                "Lab Measurements", 
+                                                "Vitals")),
+                        selectInput("variable", "Variable:", choices = NULL)
+                    ),
+                    box(title = "Graphical Summary", 
+                        status = "warning", plotOutput("variable_plot")),
+                    box(title = "Numerical Summary", 
+                        status = "info", DTOutput("variable_summary"))
+                )
+            ),
+            tabItem(tabName = "patient_details",
+                    h1("Patient Details"),
+                    textInput("input_patient_id", "Enter Patient ID:", value = ""),  # Patient ID input box
+                    textOutput("details_text")  # Placeholder text
+            )
+        )
+    )
+)
+
+
+server <- function(input, output, session) {
+    # Load data
+    mimic_icu_cohort <- readRDS("mimiciv_shiny/mimic_icu_cohort.rds")
+    
+    # Update variable choices based on selected category
+    observe({
+        vars <- switch(input$category,
+                       "Demographics" = c("age_intime", 
+                                          "gender", 
+                                          "race", 
+                                          "insurance", 
+                                          "marital_status"),
+                       "Lab Measurements" = c("bicarbonate", 
+                                              "chloride", 
+                                              "creatinine", 
+                                              "glucose", 
+                                              "potassium", 
+                                              "sodium", 
+                                              "hematocrit", 
+                                              "wbc"),
+                       "Vitals" = c("heart_rate", 
+                                    "non_invasive_blood_pressure_diastolic", 
+                                    "non_invasive_blood_pressure_systolic", 
+                                    "respiratory_rate", 
+                                    "temperature_fahrenheit"))
+        updateSelectInput(session, "variable", choices = vars)
+    })
+    
+    output$variable_plot <- renderPlot({
+        req(input$variable)
+        if (input$variable %in% c("gender", 
+                                  "race", 
+                                  "insurance", 
+                                  "marital_status")) {
+            ggplot(mimic_icu_cohort, 
+                   aes_string(x = input$variable, 
+                              fill = input$variable)) +
+                geom_bar() +
+                theme_minimal() +
+                labs(title = paste("Distribution of", 
+                                   input$variable), x = NULL)
+        } else {
+            ggplot(mimic_icu_cohort, aes_string(x = input$variable)) +
+                geom_histogram(bins = 30) +
+                theme_minimal() +
+                labs(title = paste("Distribution of", input$variable), 
+                     x = NULL)
+        }
+    })
+    
+    output$variable_summary <- renderDT({
+    req(input$variable)
+    summary_data <- mimic_icu_cohort %>%
+        select(input$variable) %>%
+        summary()
+
+    summary_df <- data.frame(
+        Value = c(summary_data[1], 
+                  summary_data[2], 
+                  summary_data[3], 
+                  summary_data[4], 
+                  summary_data[5], 
+                  summary_data[6])
+    )
+
+    datatable(summary_df, 
+              options = list(pageLength = 6, 
+                             searching = FALSE, 
+                             paging = FALSE))
+    })
+    
+    output$details_text <- renderText({
+        if (input$input_patient_id != "") {
+            paste("Displaying details for patient ID:", input$input_patient_id)
+        } else {
+            "Please enter a patient ID to see details."
+        }
+    })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+
+
+
+
+
+
