@@ -509,128 +509,241 @@ Although it is not a good practice to add big data files to Git, for grading pur
 
 Develop a Shiny app for exploring the ICU cohort data created in Q1. The app should reside in the `mimiciv_shiny` folder. The app should contain at least two tabs. One tab provides easy access to the graphical and numerical summaries of variables (demographics, lab measurements, vitals) in the ICU cohort, using the `mimic_icu_cohort.rds` you curated in Q1. The other tab allows user to choose a specific patient in the cohort and display the patient's ADT and ICU stay information as we did in Q1 of HW3, by dynamically retrieving the patient's ADT and ICU stay information from BigQuery database. Again, do **not** ever add the BigQuery token to your Git repository. If you do so, you will lose 50 points.
 
+
+```{r}
+library(DBI)
+library(bigrquery)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+
+get_patient_demo <- function(subject_id, con) {
+  tbl(con, "patients") |>
+    filter(subject_id == !!subject_id) |>
+    left_join(tbl(con, "admissions") |> 
+                select(subject_id, race), by = "subject_id") |>
+    select(subject_id, gender, anchor_age, race) |>
+    collect()
+}
+
+
+get_adt_data <- function(subject_id, con) {
+  tbl(con, "transfers") |>
+    filter(subject_id == !!subject_id) |>
+    filter(!is.na(careunit), 
+           !is.na(intime), 
+           !is.na(outtime), 
+           careunit != "UNKNOWN") |>
+    mutate(ICU = grepl('CU', careunit)) |>
+    select(subject_id, careunit, intime, outtime, ICU) |>
+    arrange(intime) |>
+    collect() 
+}
+
+get_lab_events <- function(subject_id, con) {
+  tbl(con, "labevents") |>
+    filter(subject_id == !!subject_id) |>
+    select(subject_id, charttime) |>
+    distinct() |>
+    collect()
+}
+
+get_procedure_data <- function(subject_id, con) {
+  tbl(con, "procedures_icd") |>
+    filter(subject_id == !!subject_id) |>
+    left_join(tbl(con, "d_icd_procedures"), by = "icd_code") |>
+    mutate(charttime = as_datetime(chartdate), type_of_event = "Procedure") |>
+    select(subject_id, charttime, long_title) |>
+    collect()
+}
+
+get_top_diagnoses <- function(subject_id, con) {
+  tbl(con, "diagnoses_icd") |>
+    filter(subject_id == !!subject_id) |>
+    left_join(tbl(con, "d_icd_diagnoses"), 
+              by = c("icd_code", "icd_version")) |>
+    group_by(long_title) |>
+    summarise(freq = n(), .groups = "drop") |>
+    arrange(desc(freq)) |>
+    slice_min(order_by = -freq, n = 3, with_ties = FALSE) |>
+    collect()
+}
+
+generate_adt_plot <- function(subject_id, con) {
+  patient_demo <- get_patient_demo(subject_id, con)
+  adt_data <- get_adt_data(subject_id, con)
+  lab_events <- get_lab_events(subject_id, con)
+  procedure_data <- get_procedure_data(subject_id, con)
+  diagnoses <- get_top_diagnoses(subject_id, con)
+
+  ggplot() +
+    scale_x_datetime(name = "Calendar Time", 
+                     limits = c(min(adt_data$intime) - days(1), 
+                                max(adt_data$outtime))) +
+    scale_y_discrete(name = NULL, limits = c("Procedure", "Lab", "ADT")) +
+    
+    geom_point(data = procedure_data, 
+               aes(x = charttime, y = "Procedure", shape = long_title), 
+               size = 3, color = "black") +
+    
+    scale_shape_manual(values = c(1:n_distinct(procedure_data$long_title))) +
+    
+    geom_point(data = lab_events, 
+               aes(x = charttime, y = "Lab"), 
+               shape = 3, size = 2, color = "black") +
+    
+    geom_segment(data = adt_data, 
+                 aes(x = intime, xend = outtime, y = "ADT", 
+                     yend = "ADT", color = careunit, 
+                     linewidth = as.factor(ICU))) +
+    
+    theme_bw() +
+    
+    theme(legend.position = "bottom", 
+          legend.box = "vertical", 
+          legend.key.size = unit(0, "pt"), 
+          legend.text = element_text(size = 7)) +
+    
+    guides(linewidth = "none", 
+           color = guide_legend(title = "Care Unit", ncol = 3, keywidth = 1),
+           shape = guide_legend(title = "Procedure", ncol = 2),
+           size = "none") +
+    
+    labs(title = paste("Patient", patient_demo$subject_id[1], ",", 
+                       patient_demo$gender[1], ",", 
+                       patient_demo$anchor_age[1], "years old,", 
+                       patient_demo$race[1]),
+         subtitle = paste(diagnoses$long_title[1],
+                          diagnoses$long_title[2],
+                          diagnoses$long_title[3],
+                          sep = "\n"))
+}
+```
+
+
+
 ```{r}
 library(shiny)
 library(shinydashboard)
-library(DT)
-library(ggplot2)
-library(dplyr)
 
+# Define UI
 ui <- dashboardPage(
-    dashboardHeader(title = "ICU Cohort Explorer"),
-    dashboardSidebar(
-        sidebarMenu(
-            menuItem("Summary", tabName = "summary", icon = icon("dashboard")),
-            menuItem("Patient Details", tabName = "patient_details", 
-                     icon = icon("user-circle"))
-        )
-    ),
-    dashboardBody(
-        tabItems(
-            tabItem(tabName = "summary",
-                fluidRow(
-                    box(title = "Select Category", status = "primary", 
-                        solidHeader = TRUE, collapsible = TRUE,
-                        selectInput("category", "Category:", 
-                                    choices = c("Demographics", 
-                                                "Lab Measurements", 
-                                                "Vitals")),
-                        selectInput("variable", "Variable:", choices = NULL)
-                    ),
-                    box(title = "Graphical Summary", 
-                        status = "warning", plotOutput("variable_plot")),
-                    box(title = "Numerical Summary", 
-                        status = "info", DTOutput("variable_summary"))
-                )
-            ),
-            tabItem(tabName = "patient_details",
-                    h1("Patient Details"),
-                    textInput("input_patient_id", "Enter Patient ID:", value = ""),  # Patient ID input box
-                    textOutput("details_text")  # Placeholder text
-            )
-        )
+  dashboardHeader(title = "ICU Cohort Explorer"),
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Summary", tabName = "summary", icon = icon("dashboard")),
+      menuItem("Patient Details", tabName = "patient_details", icon = icon("user-circle"))
     )
+  ),
+  dashboardBody(
+    tabItems(
+      tabItem(tabName = "summary",
+        fluidRow(
+          box(title = "Select Category", 
+              status = "primary", 
+              solidHeader = TRUE, 
+              collapsible = TRUE,
+              selectInput("category", "Category:", 
+                          choices = c("Demographics", 
+                                      "Lab Measurements", 
+                                      "Vitals")),
+              selectInput("variable", "Variable:", choices = NULL)
+          ),
+          box(title = "Graphical Summary", 
+              status = "warning", plotOutput("variable_plot")),
+          box(title = "Numerical Summary", 
+              status = "info", DTOutput("variable_summary"))
+        )
+      ),
+      tabItem(tabName = "patient_details",
+        h1("Patient Details"),
+        textInput("input_patient_id", "Enter Patient ID:", value = ""),
+        actionButton("load_data", "Load Patient Data"),
+        textOutput("details_text"),
+        plotOutput("adt_plot")
+      )
+    )
+  )
 )
 
-
+# Define server logic
 server <- function(input, output, session) {
-    # Load data
-    mimic_icu_cohort <- readRDS("mimiciv_shiny/mimic_icu_cohort.rds")
-    
-    # Update variable choices based on selected category
-    observe({
-        vars <- switch(input$category,
-                       "Demographics" = c("age_intime", 
-                                          "gender", 
-                                          "race", 
-                                          "insurance", 
-                                          "marital_status"),
-                       "Lab Measurements" = c("bicarbonate", 
-                                              "chloride", 
-                                              "creatinine", 
-                                              "glucose", 
-                                              "potassium", 
-                                              "sodium", 
-                                              "hematocrit", 
-                                              "wbc"),
-                       "Vitals" = c("heart_rate", 
-                                    "non_invasive_blood_pressure_diastolic", 
-                                    "non_invasive_blood_pressure_systolic", 
-                                    "respiratory_rate", 
-                                    "temperature_fahrenheit"))
-        updateSelectInput(session, "variable", choices = vars)
-    })
-    
-    output$variable_plot <- renderPlot({
-        req(input$variable)
-        if (input$variable %in% c("gender", 
-                                  "race", 
-                                  "insurance", 
-                                  "marital_status")) {
-            ggplot(mimic_icu_cohort, 
-                   aes_string(x = input$variable, 
-                              fill = input$variable)) +
-                geom_bar() +
-                theme_minimal() +
-                labs(title = paste("Distribution of", 
-                                   input$variable), x = NULL)
-        } else {
-            ggplot(mimic_icu_cohort, aes_string(x = input$variable)) +
-                geom_histogram(bins = 30) +
-                theme_minimal() +
-                labs(title = paste("Distribution of", input$variable), 
-                     x = NULL)
-        }
-    })
-    
-    output$variable_summary <- renderDT({
+  mimic_icu_cohort <- readRDS("mimiciv_shiny/mimic_icu_cohort.rds")
+
+  # Update variable choices dynamically
+  observe({
+    vars <- switch(input$category,
+                   "Demographics" = c("age_intime", 
+                                      "gender", "race", 
+                                      "insurance", 
+                                      "marital_status"),
+                   "Lab Measurements" = c("bicarbonate",
+                                          "chloride", 
+                                          "creatinine", 
+                                          "glucose", 
+                                          "potassium",
+                                          "sodium", 
+                                          "hematocrit", 
+                                          "wbc"),
+                   "Vitals" = c("heart_rate", 
+                                "non_invasive_blood_pressure_diastolic", 
+                                "non_invasive_blood_pressure_systolic", 
+                                "respiratory_rate", 
+                                "temperature_fahrenheit"))
+    updateSelectInput(session, "variable", choices = vars)
+  })
+
+  # Graphical summary
+  output$variable_plot <- renderPlot({
+    req(input$variable)
+    if (input$variable %in% c("gender", "race", 
+                              "insurance", "marital_status")) {
+      ggplot(mimic_icu_cohort, aes_string(x = input$variable, 
+                                          fill = input$variable)) +
+        geom_bar() +
+        theme_minimal() +
+        labs(title = paste("Distribution of", input$variable), x = NULL)
+    } else {
+      ggplot(mimic_icu_cohort, aes_string(x = input$variable)) +
+        geom_histogram(bins = 30) +
+        theme_minimal() +
+        labs(title = paste("Distribution of", input$variable), x = NULL)
+    }
+  })
+
+  # Numerical summary
+  output$variable_summary <- renderDT({
     req(input$variable)
     summary_data <- mimic_icu_cohort %>%
-        select(input$variable) %>%
-        summary()
-
-    summary_df <- data.frame(
-        Value = c(summary_data[1], 
-                  summary_data[2], 
-                  summary_data[3], 
-                  summary_data[4], 
-                  summary_data[5], 
-                  summary_data[6])
-    )
-
+      select(input$variable) %>%
+      summary()
+    
+    summary_df <- data.frame(Value = unlist(summary_data))
     datatable(summary_df, 
               options = list(pageLength = 6, 
-                             searching = FALSE, 
-                             paging = FALSE))
-    })
+                             searching = FALSE, paging = FALSE))
+  })
+
+ observeEvent(input$load_data, {
+    req(input$input_patient_id)
+    patient_id <- as.numeric(input$input_patient_id)
+
+    print(paste("Fetching data for patient:", patient_id))
     
-    output$details_text <- renderText({
-        if (input$input_patient_id != "") {
-            paste("Displaying details for patient ID:", input$input_patient_id)
-        } else {
-            "Please enter a patient ID to see details."
-        }
+    output$adt_plot <- renderPlot({
+        tryCatch({
+            generate_adt_plot(patient_id, con_bq)
+        }, error = function(e) {
+            print(e)
+            ggplot() + ggtitle("Error loading ADT history")
+        })
     })
+
+    output$details_text <- renderText({
+        paste("Displaying ADT history for Patient ID:", patient_id)
+    })
+})
+
 }
 
 shinyApp(ui = ui, server = server)
