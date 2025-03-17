@@ -20,6 +20,9 @@ Using the ICU cohort `mimiciv_icu_cohort.rds` you built in Homework 4, develop a
 
 1. Data preprocessing and feature engineering.
 
+
+**Solution:**
+
 Load the dataset and convert categorical variables to factor:
 ```{r}
 library(tidyverse)
@@ -115,8 +118,6 @@ summary(mimic_icu_cohort |>
 
 
 
-
-
 2. Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
 ```{r}
 #| eval: false
@@ -133,6 +134,32 @@ data_split <- initial_split(
   prop = 0.5
   )
 ```
+
+
+**Solution:**
+```{r}
+library(tidymodels)
+
+set.seed(203)
+
+# Sort dataset by subject_id, hadm_id, stay_id
+mimic_icu_cohort <- mimic_icu_cohort |>
+  arrange(subject_id, hadm_id, stay_id)
+
+# Split the dataset
+data_split <- initial_split(
+  mimic_icu_cohort, 
+  strata = "los_long",
+  prop = 0.5
+)
+
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+dim(train_data)
+dim(test_data)
+```
+
 
 3. Train and tune the models using the training set.
 
