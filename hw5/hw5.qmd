@@ -1,0 +1,139 @@
+---
+title: "Biostat 203B Homework 5"
+subtitle: Due Mar 20 @ 11:59PM
+author: "Tanya Wang, 605587605"
+format:
+  html:
+    theme: cosmo
+    embed-resources: true
+    number-sections: false
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    code-fold: false
+---
+
+## Predicting ICU duration
+
+Using the ICU cohort `mimiciv_icu_cohort.rds` you built in Homework 4, develop at least three machine learning approaches (logistic regression with enet regularization, random forest, boosting, SVM, MLP, etc) plus a model stacking approach for predicting whether a patient's ICU stay will be longer than 2 days. You should use the `los_long` variable as the outcome. You algorithms can use patient demographic information (gender, age at ICU `intime`, marital status, race), ICU admission information (first care unit), the last lab measurements before the ICU stay, and first vital measurements during ICU stay as features. You are welcome to use any feature engineering techniques you think are appropriate; but make sure to not use features that are not available at an ICU stay's `intime`. For instance, `last_careunit` cannot be used in your algorithms. 
+
+
+1. Data preprocessing and feature engineering.
+
+Load the dataset and convert categorical variables to factor:
+```{r}
+library(tidyverse)
+library(caret)
+library(data.table)
+
+mimic_icu_cohort <- 
+  readRDS("~/203b-hw/hw4/mimiciv_shiny/mimic_icu_cohort.rds") |>
+  filter(!is.na(los_long)) |>
+  select(-last_careunit) |>
+  mutate(across(
+    c(los_long,
+      admit_provider_id,
+      insurance, 
+      language, 
+      marital_status, 
+      gender, 
+      anchor_year_group), as.factor))
+```
+
+
+
+
+```{r}
+str(mimic_icu_cohort)
+```
+
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Select only continuous variables
+continuous_vars <- mimic_icu_cohort |>
+  select(
+    bicarbonate, chloride, creatinine, glucose, potassium, sodium, 
+    hematocrit, wbc, heart_rate, 
+    non_invasive_blood_pressure_diastolic, 
+    non_invasive_blood_pressure_systolic, 
+    respiratory_rate, temperature_fahrenheit, age_intime
+  )
+
+plot_list <- list()
+
+for (var in colnames(continuous_vars)) {
+  p <- ggplot(mimic_icu_cohort, aes_string(x = var)) +
+    geom_density(fill = "blue", alpha = 0.5, na.rm = TRUE) +
+    labs(title = var, x = "Value", y = "Density") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.1, face = "bold", size = 8))
+  
+  plot_list[[var]] <- p
+}
+
+grid.arrange(grobs = plot_list, ncol = 4)
+```
+
+Handle missing values (for continuous variables, impute missing values using the median, and
+for categorical variables, replace missing values with the mode):
+```{r}
+impute_missing <- function(df) {
+  for (col in colnames(df)) {
+    if (is.numeric(df[[col]])) {
+      df[[col]][is.na(df[[col]])] <- median(df[[col]], na.rm = TRUE)
+    } else {
+      df[[col]][is.na(df[[col]])] <- 
+        as.character(names(sort(table(df[[col]]), decreasing = TRUE))[1])
+    }
+  }
+  return(df)
+}
+
+mimic_icu_cohort <- impute_missing(mimic_icu_cohort)
+colSums(is.na(mimic_icu_cohort))
+```
+
+For some models like SVM and Neural Networks, they will work better when continuous variables are normalized.
+```{r}
+library(dplyr)
+
+num_features <- c("bicarbonate", "chloride", "creatinine", "glucose", 
+                   "potassium", "sodium","hematocrit", "wbc", "heart_rate",
+                   "non_invasive_blood_pressure_diastolic", 
+                   "non_invasive_blood_pressure_systolic", 
+                   "respiratory_rate", "temperature_fahrenheit", "age_intime")
+
+mimic_icu_cohort_normalized <- mimic_icu_cohort |>
+  mutate(across(all_of(num_features), scale))
+
+summary(mimic_icu_cohort |> 
+          select(all_of(num_features)))
+```
+
+
+
+
+
+2. Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
+```{r}
+#| eval: false
+set.seed(203)
+
+# sort
+mimiciv_icu_cohort <- mimiciv_icu_cohort |>
+  arrange(subject_id, hadm_id, stay_id)
+
+data_split <- initial_split(
+  mimiciv_icu_cohort, 
+  # stratify by los_long
+  strata = "los_long", 
+  prop = 0.5
+  )
+```
+
+3. Train and tune the models using the training set.
+
+4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
