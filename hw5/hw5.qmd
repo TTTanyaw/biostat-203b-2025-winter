@@ -501,6 +501,226 @@ final_fit |>
 
 
 
+#### Model Stacking
+
+```{r}
+ms_recipe <- 
+  recipe(
+    los_long ~ ., 
+    data = train_data
+  ) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors())
+ms_recipe
+```
+
+```{r}
+set.seed(203)
+folds <- vfold_cv(train_data, v = 5)
+```
+
+
+##### SVM
+```{r}
+svm_mod <- 
+  svm_rbf(
+    mode = "classification",
+    cost = tune(),
+    rbf_sigma = tune()
+  ) |> 
+  set_engine("kernlab")
+svm_mod
+```
+
+```{r}
+svm_wf <- workflow() |>
+  add_recipe(ms_recipe) |>
+  add_model(svm_mod)
+svm_wf
+```
+
+```{r}
+svm_grid <- grid_regular(
+  cost(range = c(-8, 5)),
+  rbf_sigma(range = c(-5, -3)),
+  levels = c(3, 3)
+  )
+svm_grid
+
+svm_res <- 
+  tune_grid(
+    object = svm_wf, 
+    resamples = folds, 
+    grid = svm_grid,
+    control = control_stack_grid()
+  )
+svm_res
+```
+
+
+##### Random forest
+```{r}
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) |>
+  set_engine("ranger")
+rf_mod
+```
+
+```{r}
+rf_wf <- workflow() |>
+  add_recipe(ms_recipe) |>
+  add_model(rf_mod)
+rf_wf
+```
+
+```{r}
+rf_grid <- grid_regular(
+  trees(range = c(100L, 500L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(5, 5)
+  )
+
+rf_res <- 
+  tune_grid(
+    object = rf_wf, 
+    resamples = folds, 
+    grid = rf_grid,
+    control = control_stack_grid()
+  )
+rf_res
+```
+
+
+##### Neural network
+```{r}
+mlp_mod <- 
+  mlp(
+    mode = "classification",
+    hidden_units = tune(),
+    dropout = tune(),
+    epochs = 50,
+  ) |> 
+  set_engine("keras", verbose = 0)
+mlp_mod
+```
+
+```{r}
+mlp_wf <- workflow() |>
+  add_recipe(heart_recipe) |>
+  add_model(mlp_mod)
+mlp_wf
+```
+
+```{r}
+mlp_grid <- grid_regular(
+  hidden_units(range =c(16, 128)),
+  dropout(range = c(0, 0.5)),
+  levels = 5
+  )
+
+mlp_res <- 
+  tune_grid(
+    object = mlp_wf, 
+    resamples = folds, 
+    grid = mlp_grid,
+    control = control_stack_grid()
+  )
+```
+
+
+##### Model stacking
+
+```{r}
+mimic_model_st <- 
+  # initialize the stack
+  stacks() |>
+  # add candidate members
+  add_candidates(logit_res) |>
+  add_candidates(rf_res) |>
+  add_candidates(mlp_res) |>
+  # determine how to combine their predictions
+  blend_predictions(
+    penalty = 10^(-6:2),
+    metrics = c("roc_auc")
+    ) |>
+  # fit the candidates with nonzero stacking coefficients
+  fit_members()
+```
+
+```{r}
+mimic_model_st
+```
+
+```{r}
+autoplot(mimic_model_st)
+```
+
+```{r}
+autoplot(mimic_model_st, type = "members")
+```
+
+Top results:
+```{r}
+autoplot(mimic_model_st, type = "weights")
+```
+
+```{r}
+collect_parameters(mimic_model_st, "rf_res")
+```
+
+
+##### Final Classification
+
+```{r}
+pred <- test_data %>%
+  bind_cols(predict(mimic_model_st, ., type = "prob")) %>%
+  print(width = Inf)
+```
+
+```{r}
+yardstick::roc_auc(
+  pred,
+  truth = los_long,
+  contains(".pred_No")
+  )
+```
+
+```{r}
+pred <-
+  test_data |>
+  select(los_long) |>
+  bind_cols(
+    predict(
+      mimic_model_st,
+      test_data,
+      type = "class",
+      members = TRUE
+      )
+    ) |>
+  print(width = Inf)
+```
+
+```{r}
+map(
+  colnames(pred),
+  ~mean(pred$los_long == pull(pred, .x))
+  ) |>
+  set_names(colnames(pred)) |>
+  as_tibble() |>
+  pivot_longer(c(everything(), -los_long))
+```
+
+
+
+
+
+
 
 
 ### Question 4
