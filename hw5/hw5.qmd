@@ -103,23 +103,6 @@ mimic_icu_cohort <- impute_missing(mimic_icu_cohort)
 colSums(is.na(mimic_icu_cohort))
 ```
 
-For some models like SVM and Neural Networks, they will work better when continuous variables are normalized.
-```{r}
-library(dplyr)
-
-num_features <- c("bicarbonate", "chloride", "creatinine", "glucose", 
-                   "potassium", "sodium","hematocrit", "wbc", "heart_rate",
-                   "non_invasive_blood_pressure_diastolic", 
-                   "non_invasive_blood_pressure_systolic", 
-                   "respiratory_rate", "temperature_fahrenheit", "age_intime")
-
-mimic_icu_cohort_normalized <- mimic_icu_cohort |>
-  mutate(across(all_of(num_features), scale))
-
-summary(mimic_icu_cohort |> 
-          select(all_of(num_features)))
-```
-
 
 
 ### Quetion 2
@@ -206,7 +189,7 @@ logit_wf <- workflow() |>
 param_grid <- grid_regular(
   penalty(range = c(-6, 3)), 
   mixture(),
-  levels = c(100, 5)
+  levels = c(5, 5)
   ) |>
   print()
 ```
@@ -504,6 +487,10 @@ final_fit |>
 #### Model Stacking
 
 ```{r}
+library(stacks)
+library(keras)
+library(kernlab)
+
 ms_recipe <- 
   recipe(
     los_long ~ ., 
@@ -520,41 +507,39 @@ folds <- vfold_cv(train_data, v = 5)
 ```
 
 
-##### SVM
+##### Logistic Regression
 ```{r}
-svm_mod <- 
-  svm_rbf(
-    mode = "classification",
-    cost = tune(),
-    rbf_sigma = tune()
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
   ) |> 
-  set_engine("kernlab")
-svm_mod
+  set_engine("glmnet", standardize = TRUE)
+logit_mod
 ```
 
 ```{r}
-svm_wf <- workflow() |>
+logit_wf <- workflow() |>
   add_recipe(ms_recipe) |>
-  add_model(svm_mod)
-svm_wf
+  add_model(logit_mod)
+logit_wf
 ```
 
 ```{r}
-svm_grid <- grid_regular(
-  cost(range = c(-8, 5)),
-  rbf_sigma(range = c(-5, -3)),
-  levels = c(3, 3)
+logit_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
   )
-svm_grid
 
-svm_res <- 
+logit_res <- 
   tune_grid(
-    object = svm_wf, 
+    object = logit_wf, 
     resamples = folds, 
-    grid = svm_grid,
+    grid = logit_grid,
     control = control_stack_grid()
   )
-svm_res
+logit_res
 ```
 
 
@@ -583,7 +568,7 @@ rf_wf
 rf_grid <- grid_regular(
   trees(range = c(100L, 500L)), 
   mtry(range = c(1L, 5L)),
-  levels = c(5, 5)
+  levels = c(2, 5)
   )
 
 rf_res <- 
@@ -597,40 +582,41 @@ rf_res
 ```
 
 
-##### Neural network
+##### XGBoost
 ```{r}
-mlp_mod <- 
-  mlp(
+gb_mod <- 
+  boost_tree(
     mode = "classification",
-    hidden_units = tune(),
-    dropout = tune(),
-    epochs = 50,
+    trees = 500, 
+    tree_depth = tune(),
+    learn_rate = tune()
   ) |> 
-  set_engine("keras", verbose = 0)
-mlp_mod
+  set_engine("xgboost")
+gb_mod
 ```
 
 ```{r}
-mlp_wf <- workflow() |>
-  add_recipe(heart_recipe) |>
-  add_model(mlp_mod)
-mlp_wf
+gb_wf <- workflow() |>
+  add_recipe(ms_recipe) |>
+  add_model(gb_mod)
+gb_wf
 ```
 
 ```{r}
-mlp_grid <- grid_regular(
-  hidden_units(range =c(16, 128)),
-  dropout(range = c(0, 0.5)),
-  levels = 5
+gb_grid <- grid_regular(
+  tree_depth(range = c(3L, 10L)),
+  learn_rate(range = c(-3, 2), trans = log10_trans()),
+  levels = c(2, 5)
   )
 
-mlp_res <- 
+gb_res <- 
   tune_grid(
-    object = mlp_wf, 
+    object = gb_wf, 
     resamples = folds, 
-    grid = mlp_grid,
+    grid = gb_grid,
     control = control_stack_grid()
   )
+gb_res
 ```
 
 
@@ -643,7 +629,7 @@ mimic_model_st <-
   # add candidate members
   add_candidates(logit_res) |>
   add_candidates(rf_res) |>
-  add_candidates(mlp_res) |>
+  add_candidates(gb_res) |>
   # determine how to combine their predictions
   blend_predictions(
     penalty = 10^(-6:2),
@@ -718,10 +704,85 @@ map(
 
 
 
-
-
-
-
-
 ### Question 4
 Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
+
+```{r,eval=FALSE}
+evaluate_model <- function(model, model_name, test_data) {
+  # Predict probabilities
+  preds_prob <- predict(model, test_data, type = "prob") |>
+    bind_cols(test_data)
+  
+  # ROC & AUC
+  auc <- yardstick::roc_auc(preds_prob, 
+                            truth = los_long, 
+                            .pred_TRUE) |>
+    pull(.estimate)
+  
+  # Predict class labels
+  preds_class <- predict(model, test_data, type = "class") |>
+    bind_cols(test_data)
+  
+  # Compute accuracy
+  acc <- yardstick::accuracy(preds_class, 
+                             truth = los_long, 
+                             estimate = .pred_class) |>
+    pull(.estimate)
+  
+  tibble(Model = model_name, AUC = auc, Accuracy = acc)
+}
+
+model_comparison <- bind_rows(
+  evaluate_model(final_rf, "Random Forest", test_data),
+  evaluate_model(final_gb, "XGBoost", test_data),
+  evaluate_model(final_logit, "Logistic Regression", test_data),
+  evaluate_model(mimic_model_st, "Stacked Model", test_data)
+)
+
+model_comparison
+```
+
+```{r}
+roc_rf <- final_rf |>
+  predict(test_data, type = "prob") |>
+  bind_cols(test_data) |>
+  roc_curve(truth = los_long, .pred_TRUE) |>
+  mutate(Model = "Random Forest")
+
+roc_gb <- final_gb |>
+  predict(test_data, type = "prob") |>
+  bind_cols(test_data) |>
+  roc_curve(truth = los_long, .pred_TRUE) |>
+  mutate(Model = "XGBoost")
+
+roc_logit <- final_logit |>
+  predict(test_data, type = "prob") |>
+  bind_cols(test_data) |>
+  roc_curve(truth = los_long, .pred_TRUE) |>
+  mutate(Model = "Logistic Regression")
+
+roc_stack <- mimic_model_st |>
+  predict(test_data, type = "prob") |>
+  bind_cols(test_data) |>
+  roc_curve(truth = los_long, .pred_TRUE) |>
+  mutate(Model = "Stacked Model")
+
+# Combine ROC data
+roc_data <- bind_rows(roc_rf, roc_gb, roc_logit, roc_stack)
+
+ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = Model)) +
+  geom_line(size = 1) +
+  labs(title = "ROC Curves for Model Comparison", 
+       x = "False Positive Rate", y = "True Positive Rate") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
