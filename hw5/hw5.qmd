@@ -18,7 +18,8 @@ format:
 Using the ICU cohort `mimiciv_icu_cohort.rds` you built in Homework 4, develop at least three machine learning approaches (logistic regression with enet regularization, random forest, boosting, SVM, MLP, etc) plus a model stacking approach for predicting whether a patient's ICU stay will be longer than 2 days. You should use the `los_long` variable as the outcome. You algorithms can use patient demographic information (gender, age at ICU `intime`, marital status, race), ICU admission information (first care unit), the last lab measurements before the ICU stay, and first vital measurements during ICU stay as features. You are welcome to use any feature engineering techniques you think are appropriate; but make sure to not use features that are not available at an ICU stay's `intime`. For instance, `last_careunit` cannot be used in your algorithms. 
 
 
-1. Data preprocessing and feature engineering.
+### Question 1
+Data preprocessing and feature engineering.
 
 
 **Solution:**
@@ -32,15 +33,18 @@ library(data.table)
 mimic_icu_cohort <- 
   readRDS("~/203b-hw/hw4/mimiciv_shiny/mimic_icu_cohort.rds") |>
   filter(!is.na(los_long)) |>
-  select(-last_careunit) |>
+  select(-los, -last_careunit, -dod, -discharge_location, -hospital_expire_flag,
+         -intime, -outtime, -admittime, -dischtime, -deathtime, 
+         -edregtime, -edouttime, -admit_provider_id, -anchor_year, -anchor_age, 
+         -anchor_year_group) |>
   mutate(across(
     c(los_long,
-      admit_provider_id,
       insurance, 
       language, 
       marital_status, 
-      gender, 
-      anchor_year_group), as.factor))
+      gender), as.factor))
+
+colnames(mimic_icu_cohort)
 ```
 
 
@@ -118,7 +122,8 @@ summary(mimic_icu_cohort |>
 
 
 
-2. Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
+### Quetion 2
+Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
 ```{r}
 #| eval: false
 set.seed(203)
@@ -153,14 +158,350 @@ data_split <- initial_split(
   prop = 0.5
 )
 
-train_data <- training(data_split)
-test_data <- testing(data_split)
+train_data <- training(data_split) |>
+  select(-subject_id, -hadm_id, -stay_id)
+
+test_data <- testing(data_split) |>
+  select(-subject_id, -hadm_id, -stay_id)
 
 dim(train_data)
 dim(test_data)
 ```
 
 
-3. Train and tune the models using the training set.
+### Question 3
+Train and tune the models using the training set.
 
-4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
+#### Logistic regression (with enet regularization)
+
+```{r}
+logit_recipe <- recipe(
+  los_long ~ ., 
+  data = train_data
+  ) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_numeric_predictors()) |>
+  step_normalize(all_numeric_predictors()) |>
+  print()
+```
+
+```{r}
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
+  ) |> 
+  set_engine("glmnet", standardize = FALSE) |>
+  print()
+```
+
+```{r}
+logit_wf <- workflow() |>
+  add_recipe(logit_recipe) |>
+  add_model(logit_mod) |>
+  print()
+```
+
+```{r}
+param_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
+  ) |>
+  print()
+```
+
+Set cross-validation partitions.
+```{r}
+set.seed(203)
+
+folds <- vfold_cv(train_data, v = 5)
+folds
+```
+
+Fit cross-validation.
+```{r}
+library(glmnet)
+
+(logit_fit <- logit_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )) |>
+  system.time()
+
+logit_fit
+```
+
+Visualize CV results:
+```{r}
+logit_fit |>
+  # aggregate metrics from K folds
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = penalty, y = mean, color = factor(mixture))) +
+  geom_point() +
+  labs(x = "Penalty", y = "CV AUC") +
+  scale_x_log10()
+```
+
+Show the top 5 models.
+```{r}
+logit_fit |>
+  show_best(metric = "roc_auc")
+```
+
+Select the best model.
+```{r}
+best_logit <- logit_fit |>
+  select_best(metric = "roc_auc")
+best_logit
+```
+
+Fit this final model to the whole training data and use test data to estimate the model performance.
+```{r}
+# Final workflow
+final_wf <- logit_wf |>
+  finalize_workflow(best_logit)
+final_wf
+```
+
+```{r}
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+```
+
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
+
+
+#### Random Forest
+
+```{r}
+rf_recipe <- 
+  recipe(
+    los_long ~ ., 
+    data = train_data
+  ) |>
+  step_zv(all_numeric_predictors())
+```
+
+```{r}
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) |> 
+  set_engine("ranger")
+rf_mod
+```
+
+```{r}
+rf_wf <- workflow() |>
+  add_recipe(rf_recipe) |>
+  add_model(rf_mod)
+rf_wf
+```
+
+```{r}
+param_grid <- grid_regular(
+  trees(range = c(100L, 500L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(5, 5)
+  )
+param_grid
+```
+
+Set cross-validation partitions.
+```{r}
+set.seed(203)
+
+folds <- vfold_cv(train_data, v = 5)
+folds
+```
+
+Fit cross-validation.
+```{r}
+library(ranger)
+
+rf_fit <- rf_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+rf_fit
+```
+
+Visualize CV results:
+```{r}
+rf_fit |>
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = trees, y = mean, color = factor(mtry))) +
+  geom_point() + 
+  # geom_line() + 
+  labs(x = "Num. of Trees", y = "CV AUC")
+```
+
+Show the top 5 models.
+```{r}
+rf_fit |>
+  show_best(metric = "roc_auc")
+```
+
+Select the best model.
+```{r}
+best_rf <- rf_fit |>
+  select_best(metric = "roc_auc")
+best_rf
+```
+
+```{r}
+# Final workflow
+final_wf <- rf_wf |>
+  finalize_workflow(best_rf)
+final_wf
+```
+
+```{r}
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+```
+
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
+
+
+#### XGBoost
+
+```{r}
+library(xgboost)
+
+gb_recipe <- 
+  recipe(
+    los_long ~ ., 
+    data = train_data
+  ) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_numeric_predictors()) |> 
+  print()
+```
+
+```{r}
+gb_mod <- 
+  boost_tree(
+    mode = "classification",
+    trees = 500, 
+    tree_depth = tune(),
+    learn_rate = tune()
+  ) |> 
+  set_engine("xgboost")
+gb_mod
+```
+
+```{r}
+gb_wf <- workflow() |>
+  add_recipe(gb_recipe) |>
+  add_model(gb_mod)
+gb_wf
+```
+
+```{r}
+param_grid <- grid_regular(
+  tree_depth(range = c(3L, 10L)),
+  learn_rate(range = c(-3, 2), trans = log10_trans()),
+  levels = c(3, 10)
+  )
+param_grid
+```
+
+Set cross-validation partitions.
+```{r}
+set.seed(203)
+
+folds <- vfold_cv(train_data, v = 5)
+folds
+```
+
+Fit cross-validation.
+```{r}
+gb_fit <- gb_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+gb_fit
+```
+
+Visualize CV results:
+```{r}
+gb_fit |>
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = learn_rate, y = mean, color = factor(tree_depth))) +
+  geom_point() +
+  labs(x = "Learning Rate", y = "CV AUC") +
+  scale_x_log10()
+```
+
+Show the top 5 models.
+```{r}
+gb_fit |>
+  show_best(metric = "roc_auc")
+```
+
+Select the best model.
+```{r}
+best_gb <- gb_fit |>
+  select_best(metric = "roc_auc")
+best_gb
+```
+
+```{r}
+# Final workflow
+final_wf <- gb_wf |>
+  finalize_workflow(best_gb)
+final_wf
+```
+
+```{r}
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+```
+
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
+
+
+
+
+
+### Question 4
+Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
