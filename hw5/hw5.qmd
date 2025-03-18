@@ -529,7 +529,7 @@ logit_wf
 logit_grid <- grid_regular(
   penalty(range = c(-6, 3)), 
   mixture(),
-  levels = c(100, 5)
+  levels = c(5, 5)
   )
 
 logit_res <- 
