@@ -33,10 +33,10 @@ library(data.table)
 mimic_icu_cohort <- 
   readRDS("~/203b-hw/hw4/mimiciv_shiny/mimic_icu_cohort.rds") |>
   filter(!is.na(los_long)) |>
-  select(-los, -last_careunit, -dod, -discharge_location, -hospital_expire_flag,
-         -intime, -outtime, -admittime, -dischtime, -deathtime, 
-         -edregtime, -edouttime, -admit_provider_id, -anchor_year, -anchor_age, 
-         -anchor_year_group) |>
+  select(-los, -last_careunit, -dod, -discharge_location, 
+         -hospital_expire_flag, -intime, -outtime, -admittime, -dischtime, 
+         -deathtime, -edregtime, -edouttime, -admit_provider_id, -anchor_year, 
+         -anchor_age, -anchor_year_group) |>
   mutate(across(
     c(los_long,
       insurance, 
@@ -84,14 +84,36 @@ for (var in colnames(continuous_vars)) {
 grid.arrange(grobs = plot_list, ncol = 4)
 ```
 
-Handle missing values (for continuous variables, impute missing values using the median, and
-for categorical variables, replace missing values with the mode):
+
+
+Handle missing values (for continuous variables,  handle skewed data with median imputation and normally distributed data with mean imputation, and for categorical variables, replace missing values with the mode):
 ```{r}
+library(moments)
+
+skewness_values <- sapply(mimic_icu_cohort, 
+                          function(x) 
+                            if(is.numeric(x)) 
+                              skewness(x, na.rm = TRUE) 
+                            else 
+                              NA)
+
+# Impute with median
+skewed_vars <- names(skewness_values[abs(skewness_values) > 0.5])
+# Impute with mean
+normal_vars <- names(skewness_values[abs(skewness_values) <= 0.5])
+
 impute_missing <- function(df) {
   for (col in colnames(df)) {
     if (is.numeric(df[[col]])) {
-      df[[col]][is.na(df[[col]])] <- median(df[[col]], na.rm = TRUE)
+      if (col %in% skewed_vars) {
+        df[[col]][is.na(df[[col]])] <- 
+          median(df[[col]], na.rm = TRUE)  # Median for skewed data
+      } else {
+        df[[col]][is.na(df[[col]])] <- 
+          mean(df[[col]], na.rm = TRUE)  # Mean for normal data
+      }
     } else {
+      # Impute categorical variables with mode
       df[[col]][is.na(df[[col]])] <- 
         as.character(names(sort(table(df[[col]]), decreasing = TRUE))[1])
     }
@@ -100,6 +122,7 @@ impute_missing <- function(df) {
 }
 
 mimic_icu_cohort <- impute_missing(mimic_icu_cohort)
+
 colSums(is.na(mimic_icu_cohort))
 ```
 
@@ -107,7 +130,7 @@ colSums(is.na(mimic_icu_cohort))
 
 ### Quetion 2
 Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
-```{r}
+```{r,eval=FALSE}
 #| eval: false
 set.seed(203)
 
@@ -246,22 +269,23 @@ best_logit
 Fit this final model to the whole training data and use test data to estimate the model performance.
 ```{r}
 # Final workflow
-final_wf <- logit_wf |>
+final_wf_logit <- logit_wf |>
   finalize_workflow(best_logit)
-final_wf
+final_wf_logit
 ```
 
 ```{r}
 # Fit the whole training set, then predict the test cases
-final_fit <- 
-  final_wf |>
+final_fit_logit <- 
+  final_wf_logit |>
   last_fit(data_split)
 final_fit
 ```
 
+
 ```{r}
 # Test metrics
-final_fit |> 
+final_fit_logit |> 
   collect_metrics()
 ```
 
@@ -354,22 +378,22 @@ best_rf
 
 ```{r}
 # Final workflow
-final_wf <- rf_wf |>
+final_wf_rf <- rf_wf |>
   finalize_workflow(best_rf)
-final_wf
+final_wf_rf
 ```
 
 ```{r}
 # Fit the whole training set, then predict the test cases
-final_fit <- 
-  final_wf |>
+final_fit_rf <- 
+  final_wf_rf |>
   last_fit(data_split)
 final_fit
 ```
 
 ```{r}
 # Test metrics
-final_fit |> 
+final_fit_rf |> 
   collect_metrics()
 ```
 
@@ -463,22 +487,22 @@ best_gb
 
 ```{r}
 # Final workflow
-final_wf <- gb_wf |>
+final_wf_gb <- gb_wf |>
   finalize_workflow(best_gb)
-final_wf
+final_wf_gb
 ```
 
 ```{r}
 # Fit the whole training set, then predict the test cases
-final_fit <- 
-  final_wf |>
+final_fit_gb <- 
+  final_wf_gb |>
   last_fit(data_split)
 final_fit
 ```
 
 ```{r}
 # Test metrics
-final_fit |> 
+final_fit_gb |> 
   collect_metrics()
 ```
 
@@ -664,16 +688,18 @@ collect_parameters(mimic_model_st, "rf_res")
 ##### Final Classification
 
 ```{r}
-pred <- test_data %>%
-  bind_cols(predict(mimic_model_st, ., type = "prob")) %>%
+pred <- test_data |>
+  bind_cols(predict(mimic_model_st, ., type = "prob")) |>
   print(width = Inf)
 ```
 
 ```{r}
+colnames(pred)
+
 yardstick::roc_auc(
   pred,
   truth = los_long,
-  contains(".pred_No")
+  contains(".pred_TRUE")
   )
 ```
 
@@ -707,82 +733,55 @@ map(
 ### Question 4
 Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
 
-```{r,eval=FALSE}
-evaluate_model <- function(model, model_name, test_data) {
-  # Predict probabilities
-  preds_prob <- predict(model, test_data, type = "prob") |>
-    bind_cols(test_data)
-  
-  # ROC & AUC
-  auc <- yardstick::roc_auc(preds_prob, 
-                            truth = los_long, 
-                            .pred_TRUE) |>
-    pull(.estimate)
-  
-  # Predict class labels
-  preds_class <- predict(model, test_data, type = "class") |>
-    bind_cols(test_data)
-  
-  # Compute accuracy
-  acc <- yardstick::accuracy(preds_class, 
-                             truth = los_long, 
-                             estimate = .pred_class) |>
-    pull(.estimate)
-  
-  tibble(Model = model_name, AUC = auc, Accuracy = acc)
-}
+```{r}
+library(yardstick)
+library(dplyr)
 
-model_comparison <- bind_rows(
-  evaluate_model(final_rf, "Random Forest", test_data),
-  evaluate_model(final_gb, "XGBoost", test_data),
-  evaluate_model(final_logit, "Logistic Regression", test_data),
-  evaluate_model(mimic_model_st, "Stacked Model", test_data)
+logit_results <- collect_metrics(final_fit_logit) |>
+  filter(.metric %in% c("roc_auc", "accuracy")) |>
+  select(.metric, .estimate) |>
+  pivot_wider(names_from = .metric, values_from = .estimate) |>
+  mutate(model = "Logistic Regression")
+
+rf_results <- collect_metrics(final_fit_rf) |>
+  filter(.metric %in% c("roc_auc", "accuracy")) |>
+  select(.metric, .estimate) |>
+  pivot_wider(names_from = .metric, values_from = .estimate) |>
+  mutate(model = "Random Forest")
+
+gb_results <- collect_metrics(final_fit_gb) |>
+  filter(.metric %in% c("roc_auc", "accuracy")) |>
+  select(.metric, .estimate) |>
+  pivot_wider(names_from = .metric, values_from = .estimate) |>
+  mutate(model = "XGBoost")
+
+stack_pred_class <- predict(mimic_model_st, test_data, 
+                            type = "class")$.pred_class
+stack_pred_class <- factor(stack_pred_class,
+                           levels = levels(test_data$los_long))
+
+stack_auc <- yardstick::roc_auc(
+    test_data |>
+      bind_cols(predict(mimic_model_st, ., type = "prob")),
+    truth = los_long,
+    contains(".pred_TRUE")
+  )$.estimate
+
+stack_acc <- mean(test_data$los_long == stack_pred_class)
+
+stack_results <- tibble(
+  model = "Model Stacking",
+  accuracy = stack_acc,
+  roc_auc = stack_auc
 )
 
-model_comparison
+model_performance <- bind_rows(logit_results, 
+                               rf_results, 
+                               gb_results, 
+                               stack_results) |>
+  select(model, roc_auc, accuracy)
+print(model_performance)
 ```
-
-```{r}
-roc_rf <- final_rf |>
-  predict(test_data, type = "prob") |>
-  bind_cols(test_data) |>
-  roc_curve(truth = los_long, .pred_TRUE) |>
-  mutate(Model = "Random Forest")
-
-roc_gb <- final_gb |>
-  predict(test_data, type = "prob") |>
-  bind_cols(test_data) |>
-  roc_curve(truth = los_long, .pred_TRUE) |>
-  mutate(Model = "XGBoost")
-
-roc_logit <- final_logit |>
-  predict(test_data, type = "prob") |>
-  bind_cols(test_data) |>
-  roc_curve(truth = los_long, .pred_TRUE) |>
-  mutate(Model = "Logistic Regression")
-
-roc_stack <- mimic_model_st |>
-  predict(test_data, type = "prob") |>
-  bind_cols(test_data) |>
-  roc_curve(truth = los_long, .pred_TRUE) |>
-  mutate(Model = "Stacked Model")
-
-# Combine ROC data
-roc_data <- bind_rows(roc_rf, roc_gb, roc_logit, roc_stack)
-
-ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = Model)) +
-  geom_line(size = 1) +
-  labs(title = "ROC Curves for Model Comparison", 
-       x = "False Positive Rate", y = "True Positive Rate") +
-  theme_minimal()
-```
-
-
-
-
-
-
-
 
 
 
