@@ -48,8 +48,6 @@ colnames(mimic_icu_cohort)
 ```
 
 
-
-
 ```{r}
 str(mimic_icu_cohort)
 ```
@@ -279,7 +277,7 @@ final_wf_logit
 final_fit_logit <- 
   final_wf_logit |>
   last_fit(data_split)
-final_fit
+final_fit_logit
 ```
 
 
@@ -310,7 +308,7 @@ rf_mod <-
     # Number of trees in ensemble
     trees = tune()
   ) |> 
-  set_engine("ranger")
+  set_engine("ranger", importance = "impurity")
 rf_mod
 ```
 
@@ -388,7 +386,7 @@ final_wf_rf
 final_fit_rf <- 
   final_wf_rf |>
   last_fit(data_split)
-final_fit
+final_fit_rf
 ```
 
 ```{r}
@@ -497,7 +495,7 @@ final_wf_gb
 final_fit_gb <- 
   final_wf_gb |>
   last_fit(data_split)
-final_fit
+final_fit_gb
 ```
 
 ```{r}
@@ -688,8 +686,8 @@ collect_parameters(mimic_model_st, "rf_res")
 ##### Final Classification
 
 ```{r}
-pred <- test_data |>
-  bind_cols(predict(mimic_model_st, ., type = "prob")) |>
+pred <- test_data %>%
+  bind_cols(predict(mimic_model_st, ., type = "prob")) %>%
   print(width = Inf)
 ```
 
@@ -755,14 +753,14 @@ gb_results <- collect_metrics(final_fit_gb) |>
   pivot_wider(names_from = .metric, values_from = .estimate) |>
   mutate(model = "XGBoost")
 
-stack_pred_class <- predict(mimic_model_st, test_data, 
+stack_pred_class <- predict(mimic_model_st, new_data = test_data, 
                             type = "class")$.pred_class
 stack_pred_class <- factor(stack_pred_class,
                            levels = levels(test_data$los_long))
 
 stack_auc <- yardstick::roc_auc(
     test_data |>
-      bind_cols(predict(mimic_model_st, ., type = "prob")),
+      bind_cols(predict(mimic_model_st,  new_data = test_data, type = "prob")),
     truth = los_long,
     contains(".pred_TRUE")
   )$.estimate
@@ -782,6 +780,44 @@ model_performance <- bind_rows(logit_results,
   select(model, roc_auc, accuracy)
 print(model_performance)
 ```
+
+According to the results of model performace, Model Stacking performs the best with the highest roc_auc (0.6474) and accuracy (0.6039). XGBoost (0.6399 roc_auc, 0.5997 accuracy) and Random Forest (0.6396 roc_auc, 0.5995 accuracy) perform similarly and better than Logistic Regression. Logistic Regression performs the worst, with roc_auc (0.6051) and accuracy (0.5761). Model stacking leverages strengths of different models, thus improving the performance of model prediction.
+
+XGBoost and Random Forest outperform Logistic Regression, indicating that non-linear relationships are important in predicting ICU stay length. Model Stacking outperforms all models, meaning a combination of multiple models leads to better predictions.
+
+Besides, according to the Model Stacking Weights Plot, Random Forest dominates the stack, which means Random Forest models had the strongest predictive power in the ensemble. Furthermore, a lower penalty (0.001) means the model gives more weight to all members instead of aggressively shrinking coefficients. This suggests that multiple models contributed meaningfully.
+
+
+Random Forest feature importance:
+```{r}
+final_rf_fit <- final_wf_rf |>
+  fit(train_data)
+
+rf_model <- final_rf_fit |>
+  extract_fit_engine()
+
+rf_importance <- ranger::importance(rf_model)
+
+rf_importance_df <- tibble(
+  feature = names(rf_importance),
+  importance = rf_importance
+) |>
+  arrange(desc(importance))
+
+ggplot(rf_importance_df[1:5, ], 
+       aes(x = reorder(feature, importance), y = importance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top 5 Important Features (Random Forest)", 
+       x = "Feature", y = "Importance") +
+  theme_minimal()
+```
+
+The top 5 most important features are non_invasive_blood_pressure_systolic, Heart rate, Hematocrit, wbc, and non_invasive_blood_pressure_diastolic.
+
+
+
+
 
 
 
